@@ -1,0 +1,31 @@
+const mongoose = require("mongoose");
+
+const withdrawSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true
+    },
+    amount: {
+      type: Number,
+      required: true
+    },
+    walletAddress: {
+      type: String,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending"
+    },
+    rejectReason: {
+      type: String,
+      default: null
+    }
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model("Withdraw", withdrawSchema);
