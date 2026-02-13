@@ -1,19 +1,26 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const Admin = require('./src/models/Admin');
+const User = require('./src/models/User');
 
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
-    const hashed = await bcrypt.hash('admin123', 10);
 
-    await Admin.create({
+    const existingAdmin = await User.findOne({ email: 'admin@cpay.com' });
+
+    if (existingAdmin) {
+      console.log('Admin already exists');
+      process.exit();
+    }
+
+    await User.create({
+      name: 'Admin',
       email: 'admin@cpay.com',
-      password: hashed,
+      password: 'admin123',   // ❗ plain password
       role: 'admin'
     });
 
     console.log('Admin seeded successfully');
     process.exit();
+
   })
   .catch(err => console.log(err));

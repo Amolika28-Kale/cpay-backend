@@ -7,26 +7,24 @@ const userSchema = new mongoose.Schema({
     required: true 
   },
 
-email: { 
-  type: String, 
-  required: true, 
-  unique: true,
-  lowercase: true,
-  trim: true
-},
-
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
 
   password: { 
     type: String, 
     required: true 
   },
 
-role: {
-  type: String,
-  enum: ["user"],
-  default: "user"
-},
-
+  role: {
+    type: String,
+    enum: ["user", "admin"],   // ✅ updated
+    default: "user"
+  },
 
   referralCode: {
     type: String,
@@ -41,14 +39,12 @@ role: {
 
 }, { timestamps: true });
 
-
-// 🔐 Password Hash
+/* ================= PASSWORD HASH ================= */
 userSchema.pre('save', async function (next) {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, 10);
   }
 
-  // 🔥 Generate unique referral code
   if (!this.referralCode) {
     let code;
     let exists;

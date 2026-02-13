@@ -29,8 +29,8 @@ mongoose.connect(process.env.MONGO_URI)
   res.send("Backend Working 🚀");
 });
 
-
-app.use('/api/user', userRoutes);
+app.use("/uploads", express.static("uploads"));
+app.use('/api/auth', userRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use('/api/payment-methods', paymentMethodRoutes);
