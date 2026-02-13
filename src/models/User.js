@@ -7,22 +7,26 @@ const userSchema = new mongoose.Schema({
     required: true 
   },
 
-  email: { 
-    type: String, 
-    required: true, 
-    unique: true 
-  },
+email: { 
+  type: String, 
+  required: true, 
+  unique: true,
+  lowercase: true,
+  trim: true
+},
+
 
   password: { 
     type: String, 
     required: true 
   },
 
-  role: {
-    type: String,
-    enum: ["USER"],
-    default: "USER"
-  },
+role: {
+  type: String,
+  enum: ["user"],
+  default: "user"
+},
+
 
   referralCode: {
     type: String,

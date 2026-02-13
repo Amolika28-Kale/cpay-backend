@@ -25,12 +25,13 @@ exports.register = async (req, res) => {
         return res.status(400).json({ message: "Invalid referral code" });
     }
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      referredBy: referredUser ? referredUser._id : null
-    });
+ const user = await User.create({
+  name,
+  email: email.toLowerCase(),
+  password,
+  referredBy: referredUser ? referredUser._id : null
+});
+
 
     // 🔥 Auto create 3 wallets
     await Wallet.create([
@@ -64,7 +65,12 @@ exports.login = async (req, res) => {
     if (!email || !password)
       return res.status(400).json({ message: "All fields required" });
 
-    const user = await User.findOne({ email });
+const user = await User.findOne({
+  email: email.toLowerCase()
+});
+console.log("Login email:", email);
+console.log("DB email found:", user?.email);
+
     if (!user)
       return res.status(404).json({ message: 'User not found' });
 
