@@ -21,6 +21,7 @@ const {
   approveWithdraw,
   rejectWithdraw
 } = require('../controllers/withdraw.controller');
+const { togglePaymentMethod, getAllPaymentMethods } = require('../controllers/paymentMethodController');
 
 
 // Public
@@ -28,6 +29,8 @@ router.post('/login', login);
 
 // Protected
 router.post('/set-rate', adminAuth, setConversionRate);
+router.put('/payment-method/:id/toggle', adminAuth, togglePaymentMethod);
+
 
 router.get('/users', adminAuth, getAllUsers);
 router.delete('/users/:id', adminAuth, deleteUser);
@@ -39,5 +42,8 @@ router.put('/deposits/:id/reject', adminAuth, rejectDeposit);
 router.get('/withdraws', adminAuth, getAllWithdraws);
 router.put('/withdraws/:id/approve', adminAuth, approveWithdraw);
 router.put('/withdraws/:id/reject', adminAuth, rejectWithdraw);
+
+router.get('/payment-methods', adminAuth, getAllPaymentMethods);
+
 
 module.exports = router;

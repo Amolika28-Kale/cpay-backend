@@ -2,25 +2,61 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, default: 'user' },
-referralCode: {
-  type: String,
-  unique: true
-},
-referredBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null
-}
+  name: { 
+    type: String, 
+    required: true 
+  },
+
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true 
+  },
+
+  password: { 
+    type: String, 
+    required: true 
+  },
+
+  role: {
+    type: String,
+    enum: ["USER"],
+    default: "USER"
+  },
+
+  referralCode: {
+    type: String,
+    unique: true
+  },
+
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+  }
 
 }, { timestamps: true });
 
+
+// 🔐 Password Hash
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+
+  // 🔥 Generate unique referral code
+  if (!this.referralCode) {
+    let code;
+    let exists;
+
+    do {
+      code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      exists = await mongoose.models.User.findOne({ referralCode: code });
+    } while (exists);
+
+    this.referralCode = code;
+  }
+
   next();
 });
 

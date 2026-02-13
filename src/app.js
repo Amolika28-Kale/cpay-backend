@@ -12,7 +12,7 @@ const scannerRoutes = require('./routes/scanner.routes');
 const walletRoutes = require('./routes/wallet.routes');
 const conversionRoutes = require("./routes/conversion.routes");
 const transactionRoutes = require("./routes/transaction.routes");
-
+const paymentMethodRoutes = require('./routes/payment.routes');
 const app = express();
 
 app.use(cors({
@@ -32,6 +32,8 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
+
+app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/api/deposit', depositRoutes);
 app.use("/api/withdraw", withdrawRoutes);
 app.use('/api/scanner', scannerRoutes);

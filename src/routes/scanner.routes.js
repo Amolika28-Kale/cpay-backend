@@ -6,6 +6,8 @@ const userAuth = require('../middlewares/userAuth.middleware');
 router.post('/create', userAuth, scannerController.createScanner);
 router.get('/active', userAuth, scannerController.getActiveScanners);
 router.post('/pay', userAuth, scannerController.payScanner);
-router.get('/my', userAuth, scannerController.getUserScanners);
+// router.get('/my', userAuth, scannerController.getUserScanners);
+router.post('/confirm', userAuth, scannerController.confirmPayment);
+
 
 module.exports = router;

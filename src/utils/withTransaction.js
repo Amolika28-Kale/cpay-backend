@@ -9,7 +9,9 @@ module.exports = (logic) => async (req, res) => {
     await session.commitTransaction();
   } catch (error) {
     await session.abortTransaction();
-    throw error;
+    if (!res.headersSent) {
+      res.status(500).json({ message: error.message });
+    }
   } finally {
     session.endSession();
   }

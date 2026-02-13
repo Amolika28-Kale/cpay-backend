@@ -11,11 +11,11 @@ const scannerSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    status: {
-      type: String,
-      enum: ["ACTIVE", "PAID", "EXPIRED"],
-      default: "ACTIVE",
-    },
+status: {
+  type: String,
+  enum: ["ACTIVE", "PENDING_CONFIRMATION", "PAID", "EXPIRED"],
+  default: "ACTIVE",
+},
     expiresAt: {
       type: Date,
       default: () => new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
@@ -24,6 +24,5 @@ const scannerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-scannerSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model("Scanner", scannerSchema);
