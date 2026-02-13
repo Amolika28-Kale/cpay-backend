@@ -77,9 +77,16 @@ exports.approveWithdraw = async (req, res) => {
   session.startTransaction();
 
   try {
-    const withdraw = await Withdraw.findById(req.params.id).session(session);
+    const withdraw = await Withdraw.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: "pending"
+      },
+      { status: "approved" },
+      { new: true, session }
+    );
 
-    if (!withdraw || withdraw.status !== "pending")
+    if (!withdraw)
       throw new Error("Invalid withdraw request");
 
     const inrWallet = await Wallet.findOne({
@@ -87,19 +94,15 @@ exports.approveWithdraw = async (req, res) => {
       type: "INR"
     }).session(session);
 
-    if (!inrWallet)
-      throw new Error("INR wallet not found");
-
-    if (inrWallet.balance < withdraw.amount)
+    if (!inrWallet || inrWallet.balance < withdraw.amount)
       throw new Error("Insufficient balance");
 
-    // 🔻 Deduct INR
     inrWallet.balance = Number(
       (inrWallet.balance - withdraw.amount).toFixed(2)
     );
+
     await inrWallet.save({ session });
 
-    // 🔥 1% Cashback
     const cashbackAmount = Number(
       (withdraw.amount * 0.01).toFixed(2)
     );
@@ -109,17 +112,11 @@ exports.approveWithdraw = async (req, res) => {
       type: "CASHBACK"
     }).session(session);
 
-    if (!cashbackWallet)
-      throw new Error("Cashback wallet not found");
-
     cashbackWallet.balance = Number(
       (cashbackWallet.balance + cashbackAmount).toFixed(2)
     );
 
     await cashbackWallet.save({ session });
-
-    withdraw.status = "approved";
-    await withdraw.save({ session });
 
     await Transaction.create([
       {
@@ -127,11 +124,10 @@ exports.approveWithdraw = async (req, res) => {
         type: "WITHDRAW",
         fromWallet: "INR",
         amount: withdraw.amount,
-        meta: { withdrawId: withdraw._id }
       },
       {
         user: withdraw.user,
-        type: "CASHBACK",
+        type: "SCANNER_CASHBACK",
         toWallet: "CASHBACK",
         amount: cashbackAmount,
         meta: { source: "WITHDRAW_1_PERCENT" }
@@ -146,7 +142,7 @@ exports.approveWithdraw = async (req, res) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    res.status(500).json({ message: err.message });
+    res.status(400).json({ message: err.message });
   }
 };
 

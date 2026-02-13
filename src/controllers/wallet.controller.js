@@ -1,5 +1,6 @@
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
+const { default: mongoose } = require('mongoose');
 
 exports.getWallets = async (req, res) => {
   try {
@@ -62,4 +63,37 @@ exports.getWalletSummary = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
+};
+
+exports.getCurrentRate = async (req, res) => {
+  try {
+    // Simulated rate - in a real app, this would come from an API or database
+    res.json({ rate: 90 }); // 1 USDT = ₹90
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.selfPay = async (req, res) => {
+  const { amount, qrData } = req.body;
+  const userId = req.user.id;
+
+  const wallet = await Wallet.findOne({ user: userId, type: "INR" });
+
+  if (!wallet || wallet.balance < amount) {
+    return res.status(400).json({ message: "Insufficient Balance" });
+  }
+
+  wallet.balance -= Number(amount);
+  await wallet.save();
+
+  await Transaction.create({
+    user: userId,
+    type: "SELF_PAY",
+    amount,
+    qrData,
+    status: "completed"
+  });
+
+  res.json({ message: "Payment Successful" });
 };

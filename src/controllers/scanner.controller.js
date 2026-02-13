@@ -1,7 +1,7 @@
 const Scanner = require("../models/Scanner");
 const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
-const withTransaction = require("../utils/withTransaction");
+const mongoose = require("mongoose");
 
 /* ================= CREATE SCANNER ================= */
 exports.createScanner = async (req, res) => {
@@ -44,150 +44,168 @@ exports.getActiveScanners = async (req, res) => {
 };
 
 /* ================= PAY ================= */
-exports.payScanner = withTransaction(async (session, req, res) => {
-  const { scannerId, paymentMode } = req.body;
-  const userId = req.user.id;
+exports.payScanner = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  if (!["INR", "CASHBACK"].includes(paymentMode))
-    throw new Error("Invalid payment mode");
+  try {
+    const { scannerId, paymentMode } = req.body;
+    const userId = req.user.id;
 
-  const scanner = await Scanner.findOne({
-    _id: scannerId,
-    status: "ACTIVE",
-    expiresAt: { $gt: new Date() },
-  }).session(session);
+    if (!["INR", "CASHBACK"].includes(paymentMode))
+      throw new Error("Invalid payment mode");
 
-  if (!scanner)
-    throw new Error("Scanner not available");
-
-  if (scanner.user.toString() === userId.toString())
-    throw new Error("Cannot pay your own scanner");
-
-  const payerWallet = await Wallet.findOne({
-    user: userId,
-    type: paymentMode,
-  }).session(session);
-
-  if (!payerWallet)
-    throw new Error("Wallet not found");
-
-  if (payerWallet.balance < scanner.amount)
-    throw new Error("Insufficient balance");
-
-  /* Deduct from payer */
-  payerWallet.balance = Number(
-    (payerWallet.balance - scanner.amount).toFixed(2)
-  );
-
-  await payerWallet.save({ session });
-
-  scanner.status = "PENDING_CONFIRMATION";
-  console.log("Scanner status before pay:", scanner?.status);
-
-  scanner.paidBy = userId;
-
-  await scanner.save({ session });
-
-  await Transaction.create(
-    [
+    const scanner = await Scanner.findOneAndUpdate(
       {
-        user: userId,
-        type: "SCANNER_PAY",
-        fromWallet: paymentMode,
-        amount: scanner.amount,
-        meta: { scannerId },
+        _id: scannerId,
+        status: "ACTIVE",
+        expiresAt: { $gt: new Date() },
       },
-    ],
-    { session }
-  );
+      {
+        status: "PENDING_CONFIRMATION",
+        paidBy: userId,
+      },
+      { new: true, session }
+    );
 
-  res.json({ message: "Payment initiated successfully" });
-});
+    if (!scanner)
+      throw new Error("Scanner expired or already used");
+
+    if (scanner.user.toString() === userId.toString())
+      throw new Error("Cannot pay your own scanner");
+
+    const wallet = await Wallet.findOne({
+      user: userId,
+      type: paymentMode,
+    }).session(session);
+
+    if (!wallet || wallet.balance < scanner.amount)
+      throw new Error("Insufficient balance");
+
+    wallet.balance = Number(
+      (wallet.balance - scanner.amount).toFixed(2)
+    );
+
+    await wallet.save({ session });
+
+    await Transaction.create([{
+      user: userId,
+      type: "SCANNER_PAY",
+      fromWallet: paymentMode,
+      amount: scanner.amount,
+      meta: { scannerId }
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ message: "Payment locked successfully" });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(400).json({ message: err.message });
+  }
+};
 
 /* ================= CONFIRM ================= */
-exports.confirmPayment = withTransaction(async (session, req, res) => {
-  const { scannerId } = req.body;
-  const userId = req.user.id;
+exports.confirmPayment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const scanner = await Scanner.findById(scannerId).session(session);
+  try {
+    const { scannerId } = req.body;
+    const userId = req.user.id;
 
-  if (!scanner)
-    throw new Error("Scanner not found");
+    const scanner = await Scanner.findById(scannerId).session(session);
 
-  if (scanner.status !== "PENDING_CONFIRMATION")
-    
-    throw new Error("Invalid scanner state");
-    console.log("Scanner status before confirm:", scanner?.status);
+    if (!scanner || scanner.status !== "PENDING_CONFIRMATION")
+      throw new Error("Invalid scanner state");
 
+    if (!scanner.paidBy || scanner.paidBy.toString() !== userId.toString())
+      throw new Error("Only payer can confirm");
 
-  if (!scanner.paidBy || scanner.paidBy.toString() !== userId.toString())
-    throw new Error("Only payer can confirm");
+    if (!req.file)
+      throw new Error("Screenshot required");
 
-  if (!req.file)
-    throw new Error("Payment screenshot required");
+    /* ================= OWNER INR WALLET ================= */
+    let ownerWallet = await Wallet.findOne({
+      user: scanner.user,
+      type: "INR",
+    }).session(session);
 
-  /* CREDIT OWNER (User A) */
-  const ownerWallet = await Wallet.findOne({
-    user: scanner.user,
-    type: "INR",
-  }).session(session);
+    if (!ownerWallet) {
+      ownerWallet = new Wallet({
+        user: scanner.user,
+        type: "INR",
+        balance: 0,
+      });
+      await ownerWallet.save({ session });
+    }
 
-  if (!ownerWallet)
-    throw new Error("Owner wallet not found");
+    ownerWallet.balance = Number(
+      (ownerWallet.balance + scanner.amount).toFixed(2)
+    );
+    await ownerWallet.save({ session });
 
-  ownerWallet.balance = Number(
-    (ownerWallet.balance + scanner.amount).toFixed(2)
-  );
+    /* ================= CASHBACK ================= */
+    const cashbackAmount = Number(
+      (scanner.amount * 0.05).toFixed(2)
+    );
 
-  await ownerWallet.save({ session });
+    let cashbackWallet = await Wallet.findOne({
+      user: userId,
+      type: "CASHBACK",
+    }).session(session);
 
-  /* GIVE 5% CASHBACK TO PAYER */
-  const cashbackWallet = await Wallet.findOne({
-    user: userId,
-    type: "CASHBACK",
-  }).session(session);
+    if (!cashbackWallet) {
+      cashbackWallet = new Wallet({
+        user: userId,
+        type: "CASHBACK",
+        balance: 0,
+      });
+      await cashbackWallet.save({ session });
+    }
 
-  if (!cashbackWallet)
-    throw new Error("Cashback wallet not found");
+    cashbackWallet.balance = Number(
+      (cashbackWallet.balance + cashbackAmount).toFixed(2)
+    );
+    await cashbackWallet.save({ session });
 
-  const cashbackAmount = Number(
-    ((scanner.amount * 5) / 100).toFixed(2)
-  );
+    /* ================= UPDATE SCANNER ================= */
+    scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
+    scanner.status = "PAID";
+    await scanner.save({ session });
 
-  cashbackWallet.balance = Number(
-    (cashbackWallet.balance + cashbackAmount).toFixed(2)
-  );
-
-  await cashbackWallet.save({ session });
-
-  /* SAVE SCREENSHOT */
-  scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
-  scanner.status = "PAID";
-
-  await scanner.save({ session });
-
-  await Transaction.create(
-    [
+    /* ================= TRANSACTIONS ================= */
+    await Transaction.create([
       {
         user: scanner.user,
         type: "SCANNER_CREDIT",
         toWallet: "INR",
         amount: scanner.amount,
-        meta: { scannerId },
+        meta: { scannerId }
       },
       {
         user: userId,
-        type: "CASHBACK",
+        type: "SCANNER_CASHBACK",
         toWallet: "CASHBACK",
         amount: cashbackAmount,
-        meta: { scannerId, percent: 5 },
-      },
-    ],
-    { session }
-  );
+        meta: { percent: 5 }
+      }
+    ], { session });
 
-  res.json({
-    message: "Payment confirmed successfully",
-    cashbackEarned: cashbackAmount,
-  });
-});
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      message: "Payment confirmed",
+      cashbackEarned: cashbackAmount
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(400).json({ message: err.message });
+  }
+};

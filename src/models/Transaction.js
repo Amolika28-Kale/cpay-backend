@@ -10,25 +10,22 @@ const transactionSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: [
-  "DEPOSIT",
-  "CONVERSION",
-  "SCANNER_PAY",
-  "CASHBACK",
-  "CASHBACK_TRANSFER",
-  "WITHDRAW"
-],
+        "DEPOSIT",
+        "WITHDRAW",
+        "SCANNER_PAY",
+        "SCANNER_CREDIT",
+        "SCANNER_CASHBACK",
+        "SELF_PAYMENT",
+        "CASHBACK_TRANSFER"
+      ],
       required: true,
     },
-    fromWallet: {
-      type: String,
-      enum: ["USDT", "INR", "CASHBACK"],
+    fromWallet: String,
+    toWallet: String,
+    amount: {
+      type: Number,
+      required: true,
     },
-    toWallet: {
-      type: String,
-      enum: ["USDT", "INR", "CASHBACK"],
-    },
-    amount: Number,
-    rateUsed: Number,
     meta: Object,
   },
   { timestamps: true }
