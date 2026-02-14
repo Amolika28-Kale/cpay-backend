@@ -2,6 +2,7 @@ const Scanner = require("../models/Scanner");
 const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
 const mongoose = require("mongoose");
+const User = require("../models/User");
 
 /* =========================================================
    1️⃣ REQUEST TO PAY (User A creates request)
