@@ -26,16 +26,11 @@ const userSchema = new mongoose.Schema({
     default: "user"
   },
 
-  referralCode: {
-    type: String,
-    unique: true
-  },
+referralCode: { type: String, unique: true },
+referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+totalReferrals: { type: Number, default: 0 },
+referralEarnings: { type: Number, default: 0 },
 
-  referredBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    default: null
-  }
 
 }, { timestamps: true });
 

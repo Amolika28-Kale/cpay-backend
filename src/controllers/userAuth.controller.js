@@ -46,18 +46,24 @@ exports.register = async (req, res) => {
       });
     }
 
-    /* ================= OPTIONAL REFERRAL BONUS ================= */
-    if (referredUser) {
-      const referralWallet = await Wallet.findOne({
-        user: referredUser._id,
-        type: "CASHBACK",
-      });
+/* ================= SIGNUP REFERRAL BONUS ================= */
+if (referredUser) {
+  const referralWallet = await Wallet.findOne({
+    user: referredUser._id,
+    type: "CASHBACK",
+  });
 
-      if (referralWallet) {
-        referralWallet.balance += 10; // 🎁 Flat 10 INR bonus
-        await referralWallet.save();
-      }
-    }
+  if (referralWallet) {
+    referralWallet.balance += 5; // 🎁 ₹5 Signup Bonus
+    await referralWallet.save();
+  }
+
+  // increase totalReferrals count
+  referredUser.totalReferrals += 1;
+  referredUser.referralEarnings += 5;
+  await referredUser.save();
+}
+
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -119,6 +125,28 @@ exports.login = async (req, res) => {
       },
     });
 
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+/* ================= GET REFERRAL STATS ================= */
+// controllers/userAuth.controller.js
+exports.getReferralStats = async (req, res) => {
+  try {
+    // req.user.id is correct since you signed it as 'id' in login
+    const user = await User.findById(req.user.id); 
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const cashbackWallet = await Wallet.findOne({ user: user._id, type: "CASHBACK" });
+
+    res.json({
+      referralCode: user.referralCode,
+      totalReferrals: user.totalReferrals || 0,
+      referralEarnings: user.referralEarnings || 0,
+      cashbackBalance: cashbackWallet?.balance || 0
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

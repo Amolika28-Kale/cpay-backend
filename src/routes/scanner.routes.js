@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require("multer");
 const scannerController = require("../controllers/scanner.controller");
 const userAuth = require("../middlewares/userAuth.middleware");
+const adminAuthMiddleware = require("../middlewares/adminAuth.middleware");
 
 /* ================= MULTER ================= */
 
@@ -17,32 +18,63 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-/* ================= ROUTES ================= */
-
+/* =====================================================
+   REQUEST TO PAY (User A)
+===================================================== */
 router.post(
-  "/create",
+  "/request",
   userAuth,
   upload.single("image"),
-  scannerController.createScanner
+  scannerController.requestToPay
 );
 
+/* =====================================================
+   GET ALL ACTIVE REQUESTS
+===================================================== */
 router.get(
   "/active",
   userAuth,
-  scannerController.getActiveScanners
+  scannerController.getActiveRequests
 );
 
+/* =====================================================
+   ACCEPT REQUEST (User B)
+===================================================== */
 router.post(
-  "/pay",
+  "/accept",
   userAuth,
-  scannerController.payScanner
+  scannerController.acceptRequest
 );
 
+/* =====================================================
+   SUBMIT PAYMENT SCREENSHOT (User B)
+===================================================== */
+router.post(
+  "/submit-payment",
+  userAuth,
+  upload.single("screenshot"),
+  scannerController.submitPayment
+);
+
+/* =====================================================
+   FINAL CONFIRM (User A clicks DONE)
+===================================================== */
 router.post(
   "/confirm",
   userAuth,
-  upload.single("screenshot"),   // 🔥 Screenshot added
-  scannerController.confirmPayment
+  scannerController.confirmFinalPayment
+);
+
+/* =====================================================
+   SELF PAY (1% Cashback)
+===================================================== */
+router.post(
+  "/self-pay",
+  userAuth,
+  scannerController.selfPay
 );
 
 module.exports = router;
+
+
+router.get('/all', adminAuthMiddleware, scannerController.getAllScanners);

@@ -3,113 +3,139 @@ const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
 const mongoose = require("mongoose");
 
-/* ================= CREATE SCANNER ================= */
-exports.createScanner = async (req, res) => {
+/* =========================================================
+   1️⃣ REQUEST TO PAY (User A creates request)
+========================================================= */
+exports.requestToPay = async (req, res) => {
   try {
     const { amount } = req.body;
     const userId = req.user.id;
 
     if (!amount || amount <= 0)
-      return res.status(400).json({ message: "Invalid scanner amount" });
+      return res.status(400).json({ message: "Invalid amount" });
 
     if (!req.file)
-      return res.status(400).json({ message: "QR image required" });
+      return res.status(400).json({ message: "QR required" });
 
     const scanner = await Scanner.create({
       user: userId,
       amount: Number(amount),
       image: `/uploads/${req.file.filename}`,
+      upiLink: req.body.upiLink,
+      status: "ACTIVE"
     });
 
-    res.status(201).json(scanner);
+    res.status(201).json({
+      message: "Request sent to all users",
+      scanner
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ================= GET ACTIVE ================= */
-exports.getActiveScanners = async (req, res) => {
+
+/* =========================================================
+   2️⃣ GET ALL ACTIVE REQUESTS
+========================================================= */
+exports.getActiveRequests = async (req, res) => {
   try {
-    const scanners = await Scanner.find({
-      status: "ACTIVE",
-      expiresAt: { $gt: new Date() },
-    })
-      .populate("user", "name email")
-      .sort({ createdAt: -1 });
-
-    res.json(scanners);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-/* ================= PAY ================= */
-exports.payScanner = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { scannerId, paymentMode } = req.body;
     const userId = req.user.id;
 
-    if (!["INR", "CASHBACK"].includes(paymentMode))
-      throw new Error("Invalid payment mode");
+    const requests = await Scanner.find({
+      $or: [
+        { status: "ACTIVE" },
+        { acceptedBy: userId, status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } },
+        { user: userId, status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } }
+      ],
+      expiresAt: { $gt: new Date() }
+    })
+      .populate("user", "name")
+      .populate("acceptedBy", "name")
+      .sort({ createdAt: -1 });
+
+    res.json(requests);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+/* =========================================================
+   3️⃣ ACCEPT REQUEST (User B Accept)
+========================================================= */
+exports.acceptRequest = async (req, res) => {
+  try {
+    const { scannerId } = req.body;
+    const userId = req.user.id;
 
     const scanner = await Scanner.findOneAndUpdate(
       {
         _id: scannerId,
-        status: "ACTIVE",
-        expiresAt: { $gt: new Date() },
+        status: "ACTIVE"
       },
       {
-        status: "PENDING_CONFIRMATION",
-        paidBy: userId,
+        status: "ACCEPTED",
+        acceptedBy: userId,
+        acceptedAt: new Date()
       },
-      { new: true, session }
+      { new: true }
     );
 
     if (!scanner)
-      throw new Error("Scanner expired or already used");
+      return res.status(400).json({ message: "Already accepted or expired" });
 
-    if (scanner.user.toString() === userId.toString())
-      throw new Error("Cannot pay your own scanner");
-
-    const wallet = await Wallet.findOne({
-      user: userId,
-      type: paymentMode,
-    }).session(session);
-
-    if (!wallet || wallet.balance < scanner.amount)
-      throw new Error("Insufficient balance");
-
-    wallet.balance = Number(
-      (wallet.balance - scanner.amount).toFixed(2)
-    );
-
-    await wallet.save({ session });
-
-    await Transaction.create([{
-      user: userId,
-      type: "SCANNER_PAY",
-      fromWallet: paymentMode,
-      amount: scanner.amount,
-      meta: { scannerId }
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.json({ message: "Payment locked successfully" });
+    res.json({
+      message: "Request accepted successfully"
+    });
 
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    res.status(400).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 };
 
-/* ================= CONFIRM ================= */
-exports.confirmPayment = async (req, res) => {
+
+
+/* =========================================================
+   4️⃣ SUBMIT PAYMENT SCREENSHOT (User B)
+========================================================= */
+exports.submitPayment = async (req, res) => {
+  try {
+    const { scannerId } = req.body;
+    const userId = req.user.id;
+
+    const scanner = await Scanner.findById(scannerId);
+
+    if (!scanner || scanner.status !== "ACCEPTED")
+      return res.status(400).json({ message: "Invalid state" });
+
+    if (scanner.acceptedBy.toString() !== userId)
+      return res.status(403).json({ message: "Not authorized" });
+
+    if (!req.file)
+      return res.status(400).json({ message: "Screenshot required" });
+
+    scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
+    scanner.status = "PAYMENT_SUBMITTED";
+    scanner.paymentSubmittedAt = new Date();
+
+    await scanner.save();
+
+    res.json({ message: "Screenshot submitted successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+/* =========================================================
+   5️⃣ FINAL CONFIRM (User A clicks DONE)
+========================================================= */
+exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -119,93 +145,266 @@ exports.confirmPayment = async (req, res) => {
 
     const scanner = await Scanner.findById(scannerId).session(session);
 
-    if (!scanner || scanner.status !== "PENDING_CONFIRMATION")
-      throw new Error("Invalid scanner state");
+    if (!scanner || scanner.status !== "PAYMENT_SUBMITTED")
+      throw new Error("Payment not submitted");
 
-    if (!scanner.paidBy || scanner.paidBy.toString() !== userId.toString())
-      throw new Error("Only payer can confirm");
+    if (scanner.user.toString() !== userId)
+      throw new Error("Only request creator can confirm");
 
-    if (!req.file)
-      throw new Error("Screenshot required");
+const payerId = scanner.acceptedBy;
+    const amount = scanner.amount;
 
-    /* ================= OWNER INR WALLET ================= */
-    let ownerWallet = await Wallet.findOne({
-      user: scanner.user,
-      type: "INR",
+    /* ================= USER A WALLET (DEDUCT) ================= */
+    const userAWallet = await Wallet.findOne({
+      user: userId,
+      type: "INR"
     }).session(session);
 
-    if (!ownerWallet) {
-      ownerWallet = new Wallet({
-        user: scanner.user,
+    if (!userAWallet || userAWallet.balance < amount)
+      throw new Error("User A insufficient balance");
+
+    userAWallet.balance -= amount;
+    await userAWallet.save({ session });
+
+    /* ================= USER B WALLET (CREDIT 100) ================= */
+    let userBWallet = await Wallet.findOne({
+      user: payerId,
+      type: "INR"
+    }).session(session);
+
+    if (!userBWallet) {
+      userBWallet = new Wallet({
+        user: payerId,
         type: "INR",
-        balance: 0,
+        balance: 0
       });
-      await ownerWallet.save({ session });
     }
 
-    ownerWallet.balance = Number(
-      (ownerWallet.balance + scanner.amount).toFixed(2)
-    );
-    await ownerWallet.save({ session });
+    userBWallet.balance += amount;
+    await userBWallet.save({ session });
 
-    /* ================= CASHBACK ================= */
-    const cashbackAmount = Number(
-      (scanner.amount * 0.05).toFixed(2)
-    );
+    /* ================= 5% CASHBACK ================= */
+const cashback = Number((amount * 0.01).toFixed(2));
 
     let cashbackWallet = await Wallet.findOne({
-      user: userId,
-      type: "CASHBACK",
+      user: payerId,
+      type: "CASHBACK"
     }).session(session);
 
     if (!cashbackWallet) {
       cashbackWallet = new Wallet({
-        user: userId,
+        user: payerId,
         type: "CASHBACK",
-        balance: 0,
+        balance: 0
       });
-      await cashbackWallet.save({ session });
     }
 
-    cashbackWallet.balance = Number(
-      (cashbackWallet.balance + cashbackAmount).toFixed(2)
-    );
+    cashbackWallet.balance += cashback;
     await cashbackWallet.save({ session });
+/* ================= REFERRAL COMMISSION (1%) ================= */
+const payerUser = await User.findById(payerId).session(session);
 
-    /* ================= UPDATE SCANNER ================= */
-    scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
-    scanner.status = "PAID";
-    await scanner.save({ session });
+if (payerUser.referredBy) {
+  const referrerId = payerUser.referredBy;
+
+  const referralBonus = Number((amount * 0.01).toFixed(2));
+
+  let refWallet = await Wallet.findOne({
+    user: referrerId,
+    type: "CASHBACK"
+  }).session(session);
+
+  if (!refWallet) {
+    refWallet = new Wallet({
+      user: referrerId,
+      type: "CASHBACK",
+      balance: 0
+    });
+  }
+
+  refWallet.balance += referralBonus;
+  await refWallet.save({ session });
+
+  await User.findByIdAndUpdate(referrerId, {
+    $inc: { referralEarnings: referralBonus }
+  }).session(session);
+
+  await Transaction.create([{
+    user: referrerId,
+    type: "CASHBACK",
+    fromWallet: "INR",
+    toWallet: "CASHBACK",
+    amount: referralBonus,
+    relatedScanner: scannerId,
+    meta: { type: "REFERRAL_COMMISSION" }
+  }], { session });
+}
+
+    /* ================= UPDATE STATUS ================= */
+  scanner.status = "COMPLETED";
+scanner.completedAt = new Date();
+await scanner.save({ session });
+
 
     /* ================= TRANSACTIONS ================= */
-    await Transaction.create([
-      {
-        user: scanner.user,
-        type: "SCANNER_CREDIT",
-        toWallet: "INR",
-        amount: scanner.amount,
-        meta: { scannerId }
-      },
-      {
-        user: userId,
-        type: "SCANNER_CASHBACK",
-        toWallet: "CASHBACK",
-        amount: cashbackAmount,
-        meta: { percent: 5 }
-      }
-    ], { session });
+/* ================= TRANSACTIONS ================= */
+await Transaction.create([
+  {
+    user: userId,
+    type: "DEBIT",
+    fromWallet: "INR",
+    toWallet: "INR",
+    amount,
+    relatedScanner: scannerId
+  },
+  {
+    user: payerId,
+    type: "CREDIT",
+    fromWallet: "INR",
+    toWallet: "INR",
+    amount,
+    relatedScanner: scannerId
+  },
+  {
+    user: payerId,
+    type: "CASHBACK",
+    fromWallet: "INR",
+    toWallet: "CASHBACK",
+    amount: cashback,
+    relatedScanner: scannerId
+  }
+], { session });
+
 
     await session.commitTransaction();
     session.endSession();
 
     res.json({
-      message: "Payment confirmed",
-      cashbackEarned: cashbackAmount
+      message: "Payment completed successfully",
+      cashbackEarned: cashback
     });
 
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
     res.status(400).json({ message: err.message });
+  }
+};
+
+
+/* =========================================================
+   6️⃣ SELF PAY (1% CASHBACK)
+========================================================= */
+exports.selfPay = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { amount } = req.body;
+    const userId = req.user.id;
+
+    const wallet = await Wallet.findOne({
+      user: userId,
+      type: "INR"
+    }).session(session);
+
+    if (!wallet || wallet.balance < amount)
+      throw new Error("Insufficient balance");
+
+    wallet.balance -= amount;
+    await wallet.save({ session });
+
+    const cashback = Number((amount * 0.01).toFixed(2));
+
+    let cashbackWallet = await Wallet.findOne({
+      user: userId,
+      type: "CASHBACK"
+    }).session(session);
+
+    if (!cashbackWallet) {
+      cashbackWallet = new Wallet({
+        user: userId,
+        type: "CASHBACK",
+        balance: 0
+      });
+    }
+
+    cashbackWallet.balance += cashback;
+    await cashbackWallet.save({ session });
+
+    /* ================= REFERRAL COMMISSION ON SELF PAY ================= */
+const currentUser = await User.findById(userId).session(session);
+
+if (currentUser.referredBy) {
+  const referralBonus = Number((amount * 0.01).toFixed(2));
+  const referrerId = currentUser.referredBy;
+
+  let refWallet = await Wallet.findOne({
+    user: referrerId,
+    type: "CASHBACK"
+  }).session(session);
+
+  if (!refWallet) {
+    refWallet = new Wallet({
+      user: referrerId,
+      type: "CASHBACK",
+      balance: 0
+    });
+  }
+
+  refWallet.balance += referralBonus;
+  await refWallet.save({ session });
+
+  await User.findByIdAndUpdate(referrerId, {
+    $inc: { referralEarnings: referralBonus }
+  }).session(session);
+
+  await Transaction.create([{
+    user: referrerId,
+    type: "CASHBACK",
+    fromWallet: "INR",
+    toWallet: "CASHBACK",
+    amount: referralBonus,
+    meta: { type: "SELF_PAY_REFERRAL" }
+  }], { session });
+}
+
+    await Transaction.create([{
+      user: userId,
+      type: "SELF_PAY",
+    fromWallet: "INR",
+      amount
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      message: "Self payment successful",
+      cashbackEarned: cashback
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(400).json({ message: err.message });
+  }
+};
+
+
+/* =========================================================
+   7️⃣ ADMIN: GET ALL SCANNERS (FOR ADMIN DASHBOARD)
+========================================================= */
+exports.getAllScanners = async (req, res) => {
+  try {
+    // Admin needs to see everything: Active, Accepted, Submitted, Completed, and Expired
+    const allScanners = await Scanner.find()
+      .populate("user", "name email")       // See who created it
+      .populate("acceptedBy", "name email") // See who is paying it
+      .sort({ createdAt: -1 });
+
+    res.json(allScanners);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
