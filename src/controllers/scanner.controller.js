@@ -145,152 +145,84 @@ exports.confirmFinalPayment = async (req, res) => {
 
     const scanner = await Scanner.findById(scannerId).session(session);
 
-    if (!scanner || scanner.status !== "PAYMENT_SUBMITTED")
-      throw new Error("Payment not submitted");
+    if (!scanner) throw new Error("Request not found");
+    if (scanner.status !== "PAYMENT_SUBMITTED") throw new Error("Payment proof not yet submitted");
+    if (scanner.user.toString() !== userId) throw new Error("Unauthorized: Only creator can confirm");
 
-    if (scanner.user.toString() !== userId)
-      throw new Error("Only request creator can confirm");
-
-const payerId = scanner.acceptedBy;
+    const payerId = scanner.acceptedBy;
     const amount = scanner.amount;
 
-    /* ================= USER A WALLET (DEDUCT) ================= */
-    const userAWallet = await Wallet.findOne({
-      user: userId,
-      type: "INR"
-    }).session(session);
-
-    if (!userAWallet || userAWallet.balance < amount)
-      throw new Error("User A insufficient balance");
+    // 1. Deduct Creator (User A)
+    const userAWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
+    if (!userAWallet || userAWallet.balance < amount) throw new Error("Your INR balance is too low to confirm");
 
     userAWallet.balance -= amount;
     await userAWallet.save({ session });
 
-    /* ================= USER B WALLET (CREDIT 100) ================= */
-    let userBWallet = await Wallet.findOne({
-      user: payerId,
-      type: "INR"
-    }).session(session);
-
+    // 2. Credit Payer (User B)
+    let userBWallet = await Wallet.findOne({ user: payerId, type: "INR" }).session(session);
     if (!userBWallet) {
-      userBWallet = new Wallet({
-        user: payerId,
-        type: "INR",
-        balance: 0
-      });
+      userBWallet = new Wallet({ user: payerId, type: "INR", balance: 0 });
     }
-
     userBWallet.balance += amount;
     await userBWallet.save({ session });
 
-    /* ================= 5% CASHBACK ================= */
-const cashback = Number((amount * 0.01).toFixed(2));
-
-    let cashbackWallet = await Wallet.findOne({
-      user: payerId,
-      type: "CASHBACK"
-    }).session(session);
-
+    // 3. Cashback (1%)
+    const cashback = Number((amount * 0.01).toFixed(2));
+    let cashbackWallet = await Wallet.findOne({ user: payerId, type: "CASHBACK" }).session(session);
     if (!cashbackWallet) {
-      cashbackWallet = new Wallet({
-        user: payerId,
-        type: "CASHBACK",
-        balance: 0
-      });
+      cashbackWallet = new Wallet({ user: payerId, type: "CASHBACK", balance: 0 });
     }
-
     cashbackWallet.balance += cashback;
     await cashbackWallet.save({ session });
-/* ================= REFERRAL COMMISSION (1%) ================= */
-const payerUser = await User.findById(payerId).session(session);
 
-if (payerUser.referredBy) {
-  const referrerId = payerUser.referredBy;
+    // 4. Referral Commission (1%)
+    const payerUser = await User.findById(payerId).session(session);
+    if (payerUser && payerUser.referredBy) {
+      const referrerId = payerUser.referredBy;
+      const referralBonus = Number((amount * 0.01).toFixed(2));
 
-  const referralBonus = Number((amount * 0.01).toFixed(2));
+      await Wallet.findOneAndUpdate(
+        { user: referrerId, type: "CASHBACK" },
+        { $inc: { balance: referralBonus } },
+        { upsert: true, session }
+      );
 
-  let refWallet = await Wallet.findOne({
-    user: referrerId,
-    type: "CASHBACK"
-  }).session(session);
+      await User.findByIdAndUpdate(referrerId, { $inc: { referralEarnings: referralBonus } }).session(session);
 
-  if (!refWallet) {
-    refWallet = new Wallet({
-      user: referrerId,
-      type: "CASHBACK",
-      balance: 0
-    });
-  }
+      await Transaction.create([{
+        user: referrerId,
+        type: "CASHBACK",
+        fromWallet: "INR",
+        toWallet: "CASHBACK",
+        amount: referralBonus,
+        relatedScanner: scannerId,
+        meta: { type: "REFERRAL_COMMISSION" }
+      }], { session });
+    }
 
-  refWallet.balance += referralBonus;
-  await refWallet.save({ session });
+    // 5. Update Status
+    scanner.status = "COMPLETED";
+    scanner.completedAt = new Date();
+    await scanner.save({ session });
 
-  await User.findByIdAndUpdate(referrerId, {
-    $inc: { referralEarnings: referralBonus }
-  }).session(session);
-
-  await Transaction.create([{
-    user: referrerId,
-    type: "CASHBACK",
-    fromWallet: "INR",
-    toWallet: "CASHBACK",
-    amount: referralBonus,
-    relatedScanner: scannerId,
-    meta: { type: "REFERRAL_COMMISSION" }
-  }], { session });
-}
-
-    /* ================= UPDATE STATUS ================= */
-  scanner.status = "COMPLETED";
-scanner.completedAt = new Date();
-await scanner.save({ session });
-
-
-    /* ================= TRANSACTIONS ================= */
-/* ================= TRANSACTIONS ================= */
-await Transaction.create([
-  {
-    user: userId,
-    type: "DEBIT",
-    fromWallet: "INR",
-    toWallet: "INR",
-    amount,
-    relatedScanner: scannerId
-  },
-  {
-    user: payerId,
-    type: "CREDIT",
-    fromWallet: "INR",
-    toWallet: "INR",
-    amount,
-    relatedScanner: scannerId
-  },
-  {
-    user: payerId,
-    type: "CASHBACK",
-    fromWallet: "INR",
-    toWallet: "CASHBACK",
-    amount: cashback,
-    relatedScanner: scannerId
-  }
-], { session });
-
+    // 6. Create Ledger Transactions
+    await Transaction.create([
+      { user: userId, type: "DEBIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId },
+      { user: payerId, type: "CREDIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId },
+      { user: payerId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: cashback, relatedScanner: scannerId }
+    ], { session });
 
     await session.commitTransaction();
     session.endSession();
-
-    res.json({
-      message: "Payment completed successfully",
-      cashbackEarned: cashback
-    });
+    res.json({ message: "Transaction successful", cashback });
 
   } catch (err) {
-    await session.abortTransaction();
+    if (session.inTransaction()) await session.abortTransaction();
     session.endSession();
     res.status(400).json({ message: err.message });
   }
 };
-
 
 /* =========================================================
    6️⃣ SELF PAY (1% CASHBACK)
