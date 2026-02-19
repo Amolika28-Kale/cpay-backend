@@ -269,47 +269,54 @@ exports.selfPay = async (req, res) => {
     await cashbackWallet.save({ session });
 
     /* ================= REFERRAL COMMISSION ON SELF PAY ================= */
-const currentUser = await User.findById(userId).session(session);
+    const currentUser = await User.findById(userId).session(session);
 
-if (currentUser.referredBy) {
-  const referralBonus = Number((amount * 0.01).toFixed(2));
-  const referrerId = currentUser.referredBy;
+    if (currentUser.referredBy) {
+      const referralBonus = Number((amount * 0.01).toFixed(2));
+      const referrerId = currentUser.referredBy;
 
-  let refWallet = await Wallet.findOne({
-    user: referrerId,
-    type: "CASHBACK"
-  }).session(session);
+      let refWallet = await Wallet.findOne({
+        user: referrerId,
+        type: "CASHBACK"
+      }).session(session);
 
-  if (!refWallet) {
-    refWallet = new Wallet({
-      user: referrerId,
-      type: "CASHBACK",
-      balance: 0
-    });
-  }
+      if (!refWallet) {
+        refWallet = new Wallet({
+          user: referrerId,
+          type: "CASHBACK",
+          balance: 0
+        });
+      }
 
-  refWallet.balance += referralBonus;
-  await refWallet.save({ session });
+      refWallet.balance += referralBonus;
+      await refWallet.save({ session });
 
-  await User.findByIdAndUpdate(referrerId, {
-    $inc: { referralEarnings: referralBonus }
-  }).session(session);
+      await User.findByIdAndUpdate(referrerId, {
+        $inc: { referralEarnings: referralBonus }
+      }).session(session);
 
-  await Transaction.create([{
-    user: referrerId,
-    type: "CASHBACK",
-    fromWallet: "INR",
-    toWallet: "CASHBACK",
-    amount: referralBonus,
-    meta: { type: "SELF_PAY_REFERRAL" }
-  }], { session });
-}
+      // FIXED: Added toWallet field
+      await Transaction.create([{
+        user: referrerId,
+        type: "CASHBACK",
+        fromWallet: "INR",
+        toWallet: "CASHBACK",
+        amount: referralBonus,
+        meta: { type: "SELF_PAY_REFERRAL" }
+      }], { session });
+    }
 
+    // FIXED: Single transaction with both fromWallet and toWallet
     await Transaction.create([{
       user: userId,
       type: "SELF_PAY",
-    fromWallet: "INR",
-      amount
+      fromWallet: "INR",
+      toWallet: "CASHBACK", // Changed from null to CASHBACK
+      amount: amount,
+      meta: { 
+        type: "SELF_PAY",
+        cashbackEarned: cashback 
+      }
     }], { session });
 
     await session.commitTransaction();
@@ -326,7 +333,6 @@ if (currentUser.referredBy) {
     res.status(400).json({ message: err.message });
   }
 };
-
 
 /* =========================================================
    7️⃣ ADMIN: GET ALL SCANNERS (FOR ADMIN DASHBOARD)
