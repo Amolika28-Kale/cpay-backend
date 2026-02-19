@@ -136,6 +136,9 @@ exports.submitPayment = async (req, res) => {
 /* =========================================================
    5️⃣ FINAL CONFIRM (User A clicks DONE)
 ========================================================= */
+/* =========================================================
+   5️⃣ FINAL CONFIRM (User A clicks DONE)
+========================================================= */
 exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -168,8 +171,8 @@ exports.confirmFinalPayment = async (req, res) => {
     userBWallet.balance += amount;
     await userBWallet.save({ session });
 
-    // 3. Cashback (1%)
-    const cashback = Number((amount * 0.01).toFixed(2));
+    // 🔥 3. Cashback (5% for User B)
+    const cashback = Number((amount * 0.05).toFixed(2)); // Changed from 0.01 to 0.05
     let cashbackWallet = await Wallet.findOne({ user: payerId, type: "CASHBACK" }).session(session);
     if (!cashbackWallet) {
       cashbackWallet = new Wallet({ user: payerId, type: "CASHBACK", balance: 0 });
