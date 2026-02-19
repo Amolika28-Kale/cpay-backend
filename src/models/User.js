@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  name: { 
+  mobile: { 
     type: String, 
-    required: true 
+    required: true, 
+    unique: true,
+    trim: true
   },
 
   email: { 
@@ -22,24 +24,24 @@ const userSchema = new mongoose.Schema({
 
   role: {
     type: String,
-    enum: ["user", "admin"],   // ✅ updated
+    enum: ["user", "admin"],
     default: "user"
   },
 
-referralCode: { type: String, unique: true },
-referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-totalReferrals: { type: Number, default: 0 },
-referralEarnings: { type: Number, default: 0 },
-
+  referralCode: { type: String, unique: true },
+  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  totalReferrals: { type: Number, default: 0 },
+  referralEarnings: { type: Number, default: 0 },
 
 }, { timestamps: true });
 
-/* ================= PASSWORD HASH ================= */
+/* ================= PASSWORD HASH & UNIQUE ID ================= */
 userSchema.pre('save', async function (next) {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, 10);
   }
 
+  // Generate unique referral code
   if (!this.referralCode) {
     let code;
     let exists;

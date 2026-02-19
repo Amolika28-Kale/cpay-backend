@@ -4,21 +4,41 @@ const jwt = require("jsonwebtoken");
 const Wallet = require("../models/Wallet");
 
 /* ================= REGISTER ================= */
+/* ================= REGISTER ================= */
 exports.register = async (req, res) => {
   try {
-    let { name, email, password, referralCode } = req.body;
+    let { mobile, email, password, referralCode } = req.body;
 
-    if (!name || !email || !password)
+    if (!mobile || !email || !password)
       return res.status(400).json({ message: "All fields required" });
+
+    // Mobile number validation
+    if (!/^\d{10}$/.test(mobile)) {
+      return res.status(400).json({ message: "Please enter a valid 10-digit mobile number" });
+    }
 
     if (password.length < 6)
       return res.status(400).json({ message: "Password must be at least 6 characters" });
 
     email = email.trim().toLowerCase();
+    mobile = mobile.trim();
 
-    const exists = await User.findOne({ email });
-    if (exists)
-      return res.status(400).json({ message: "User already exists" });
+    // Check if user exists with email or mobile
+    const exists = await User.findOne({ 
+      $or: [
+        { email: email },
+        { mobile: mobile }
+      ]
+    });
+    
+    if (exists) {
+      if (exists.email === email) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+      if (exists.mobile === mobile) {
+        return res.status(400).json({ message: "Mobile number already registered" });
+      }
+    }
 
     let referredUser = null;
 
@@ -28,10 +48,14 @@ exports.register = async (req, res) => {
         return res.status(400).json({ message: "Invalid referral code" });
     }
 
+    // Generate a unique ID for user (you can use mobile number as username)
+    const username = `user_${mobile}`;
+
     const user = await User.create({
-      name,
+      mobile,
       email,
       password,
+      name: username, // Auto-generated username from mobile
       referredBy: referredUser ? referredUser._id : null,
     });
 
@@ -46,24 +70,23 @@ exports.register = async (req, res) => {
       });
     }
 
-/* ================= SIGNUP REFERRAL BONUS ================= */
-if (referredUser) {
-  const referralWallet = await Wallet.findOne({
-    user: referredUser._id,
-    type: "CASHBACK",
-  });
+    /* ================= SIGNUP REFERRAL BONUS ================= */
+    if (referredUser) {
+      const referralWallet = await Wallet.findOne({
+        user: referredUser._id,
+        type: "CASHBACK",
+      });
 
-  if (referralWallet) {
-    referralWallet.balance += 5; // 🎁 ₹5 Signup Bonus
-    await referralWallet.save();
-  }
+      if (referralWallet) {
+        referralWallet.balance += 5; // 🎁 ₹5 Signup Bonus
+        await referralWallet.save();
+      }
 
-  // increase totalReferrals count
-  referredUser.totalReferrals += 1;
-  referredUser.referralEarnings += 5;
-  await referredUser.save();
-}
-
+      // increase totalReferrals count
+      referredUser.totalReferrals += 1;
+      referredUser.referralEarnings += 5;
+      await referredUser.save();
+    }
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -74,6 +97,7 @@ if (referredUser) {
     const safeUser = {
       _id: user._id,
       name: user.name,
+      mobile: user.mobile,
       email: user.email,
       referralCode: user.referralCode,
       role: user.role,
@@ -87,7 +111,6 @@ if (referredUser) {
     res.status(500).json({ message: err.message });
   }
 };
-
 /* ================= LOGIN ================= */
 exports.login = async (req, res) => {
   try {
