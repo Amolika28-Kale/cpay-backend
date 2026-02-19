@@ -61,10 +61,22 @@ exports.approveDeposit = async (req, res) => {
     usdtWallet.balance += deposit.amount;
     await usdtWallet.save({ session });
 
+    // Create USDT deposit transaction
+    await Transaction.create([{
+      user: deposit.user,
+      type: "DEPOSIT", // Using existing DEPOSIT type
+      fromWallet: null,
+      toWallet: "USDT", // Add USDT to enum first
+      amount: deposit.amount,
+      meta: {
+        depositId: deposit._id,
+        txHash: deposit.txHash,
+        currency: "USDT"
+      }
+    }], { session });
+
     /* ===== AUTO INR CONVERSION (TEST MODE) ===== */
-
     if (TEST_MODE) {
-
       const conversionRate = 83; // testing rate
 
       let inrWallet = await Wallet.findOne({
@@ -86,35 +98,35 @@ exports.approveDeposit = async (req, res) => {
       inrWallet.balance += inrAmount;
       await inrWallet.save({ session });
 
+      // Create INR credit transaction using CASHBACK type or add new type
       await Transaction.create([{
         user: deposit.user,
-        type: "CONVERSION",
-        fromWallet: "USDT",
+        type: "CREDIT", // Using existing CREDIT type
+        fromWallet: "USDT", // Need to add USDT to enum
         toWallet: "INR",
         amount: inrAmount,
-        meta: { rate: conversionRate }
+        meta: { 
+          rate: conversionRate,
+          type: "CONVERSION",
+          originalAmount: deposit.amount,
+          originalCurrency: "USDT"
+        }
       }], { session });
     }
-
-    await Transaction.create([{
-      user: deposit.user,
-      type: "DEPOSIT",
-      toWallet: "USDT",
-      amount: deposit.amount,
-      meta: {
-        depositId: deposit._id,
-        txHash: deposit.txHash
-      }
-    }], { session });
 
     await session.commitTransaction();
     session.endSession();
 
-    res.json({ message: "Deposit approved & INR credited (TEST MODE)" });
+    res.json({ 
+      message: "Deposit approved & INR credited (TEST MODE)",
+      amount: deposit.amount,
+      inrAmount: TEST_MODE ? deposit.amount * 83 : null
+    });
 
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
+    console.error("Approve deposit error:", err);
     res.status(500).json({ message: err.message });
   }
 };

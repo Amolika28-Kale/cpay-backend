@@ -13,35 +13,31 @@ const transactionSchema = new mongoose.Schema(
     enum: [
       "DEPOSIT",
       "WITHDRAW",
-
-      /* ===== SCANNER FLOW ===== */
       "REQUEST_CREATED",
       "REQUEST_ACCEPTED",
       "PAYMENT_SUBMITTED",
       "REQUEST_COMPLETED",
-
-      /* ===== WALLET MOVEMENT ===== */
       "DEBIT",
       "CREDIT",
       "CASHBACK",
-
-      /* ===== SELF PAY ===== */
       "SELF_PAY",
-
-      "CASHBACK_TRANSFER"
+      "CASHBACK_TRANSFER",
+      "CONVERSION", // ADD THIS
+      "USDT_CREDIT", // Optional: for USDT deposits
+      "INR_CREDIT" // Optional: for INR credits
     ],
     required: true,
   },
 
   fromWallet: {
     type: String,
-    enum: ["INR", "CASHBACK"],
+    enum: ["INR", "CASHBACK", "USDT", null], // ADD "USDT" HERE
     default: null
   },
 
   toWallet: {
     type: String,
-    enum: ["INR", "CASHBACK"],
+    enum: ["INR", "CASHBACK", "USDT", null], // ADD "USDT" HERE
     default: null
   },
 
