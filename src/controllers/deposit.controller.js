@@ -77,7 +77,7 @@ exports.approveDeposit = async (req, res) => {
 
     /* ===== AUTO INR CONVERSION (TEST MODE) ===== */
     if (TEST_MODE) {
-      const conversionRate = 83; // testing rate
+      const conversionRate = 95; // testing rate
 
       let inrWallet = await Wallet.findOne({
         user: deposit.user,
