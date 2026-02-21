@@ -139,6 +139,9 @@ exports.submitPayment = async (req, res) => {
 /* =========================================================
    5️⃣ FINAL CONFIRM (User A clicks DONE)
 ========================================================= */
+/* =========================================================
+   5️⃣ FINAL CONFIRM (User A clicks DONE) - UPDATED WITH CASHBACK FOR CREATOR
+========================================================= */
 exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -171,16 +174,26 @@ exports.confirmFinalPayment = async (req, res) => {
     userBWallet.balance += amount;
     await userBWallet.save({ session });
 
-    // 🔥 3. Cashback (5% for User B)
-    const cashback = Number((amount * 0.05).toFixed(2)); // Changed from 0.01 to 0.05
-    let cashbackWallet = await Wallet.findOne({ user: payerId, type: "CASHBACK" }).session(session);
-    if (!cashbackWallet) {
-      cashbackWallet = new Wallet({ user: payerId, type: "CASHBACK", balance: 0 });
+    /* ================ CASHBACK DISTRIBUTION ================ */
+    // 🔥 Cashback for Creator (User A) - 1%
+    const creatorCashback = Number((amount * 0.01).toFixed(2));
+    let creatorCashbackWallet = await Wallet.findOne({ user: userId, type: "CASHBACK" }).session(session);
+    if (!creatorCashbackWallet) {
+      creatorCashbackWallet = new Wallet({ user: userId, type: "CASHBACK", balance: 0 });
     }
-    cashbackWallet.balance += cashback;
-    await cashbackWallet.save({ session });
+    creatorCashbackWallet.balance += creatorCashback;
+    await creatorCashbackWallet.save({ session });
 
-    // 4. Referral Commission (1%)
+    // 🔥 Cashback for Payer (User B) - 5%
+    const payerCashback = Number((amount * 0.05).toFixed(2));
+    let payerCashbackWallet = await Wallet.findOne({ user: payerId, type: "CASHBACK" }).session(session);
+    if (!payerCashbackWallet) {
+      payerCashbackWallet = new Wallet({ user: payerId, type: "CASHBACK", balance: 0 });
+    }
+    payerCashbackWallet.balance += payerCashback;
+    await payerCashbackWallet.save({ session });
+
+    /* ================ REFERRAL COMMISSION (1%) ================ */
     const payerUser = await User.findById(payerId).session(session);
     if (payerUser && payerUser.referredBy) {
       const referrerId = payerUser.referredBy;
@@ -214,12 +227,18 @@ exports.confirmFinalPayment = async (req, res) => {
     await Transaction.create([
       { user: userId, type: "DEBIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId },
       { user: payerId, type: "CREDIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId },
-      { user: payerId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: cashback, relatedScanner: scannerId }
+      { user: userId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: creatorCashback, relatedScanner: scannerId, meta: { type: "CREATOR_CASHBACK" } },
+      { user: payerId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: payerCashback, relatedScanner: scannerId, meta: { type: "PAYER_CASHBACK" } }
     ], { session });
 
     await session.commitTransaction();
     session.endSession();
-    res.json({ message: "Transaction successful", cashback });
+    
+    res.json({ 
+      message: "Transaction successful", 
+      creatorCashback,
+      payerCashback 
+    });
 
   } catch (err) {
     if (session.inTransaction()) await session.abortTransaction();
@@ -227,7 +246,6 @@ exports.confirmFinalPayment = async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 };
-
 /* =========================================================
    6️⃣ SELF PAY (1% CASHBACK)
 ========================================================= */
