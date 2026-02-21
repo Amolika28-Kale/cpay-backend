@@ -9,39 +9,15 @@ mongoose.connect(process.env.MONGO_URI)
 
     await PaymentMethod.insertMany([
       {
-        method: 'UPI',
-        details: {
-          upiId: 'amolikakale234@okhdfcbank',
-          name: 'cpay Exchange',
-          phone: '+91-8625043745'
-        }
-      },
-      {
-        method: 'BANK',
-        details: {
-          accountName: 'cpay Exchange Ltd',
-          accountNumber: '13058100003991',
-          ifsc: 'BARB0VELAPU',
-          bankName: 'HDFC Bank'
-        }
-      },
-      {
-        method: 'USDT-TRC20',
-        details: {
-          address: 'TGTmCXghBxNAkUxeL7hnDPjQiQicKG26v2',
-          network: 'TRON (TRC20)'
-        }
-      },
-      {
         method: 'USDT-BEP20',
         details: {
-          address: '0xa91D8Ba3029FC14907cb4bEE60763869f0eD88f7',
+          address: '0x3a5aB6aB21B27133B92bAabA698Dbd27a5a86154',
           network: 'BSC (BEP20)'
         }
       }
     ]);
 
-    console.log("Payment methods seeded successfully");
+    console.log("✅ BEP20 payment method seeded successfully");
     process.exit();
 
   })
