@@ -188,8 +188,7 @@ const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
 
 const TEST_MODE = true; // production madhe false kara
-const AUTO_APPROVE_DELAY = 5 * 60 * 1000; // 5 minutes in milliseconds
-
+const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // Changed from 5 to 2 minutes
 // Auto-approve function
 const autoApproveDeposit = async (depositId) => {
   const session = await mongoose.startSession();
@@ -293,8 +292,11 @@ exports.createDeposit = async (req, res) => {
   try {
     const { amount, txHash, paymentMethodId } = req.body;
 
-    if (!amount || !txHash || !paymentMethodId)
-      return res.status(400).json({ message: "All fields required" });
+// ✅ Screenshot check add करा
+    if (!amount || !txHash || !paymentMethodId || !req.file) {
+      return res.status(400).json({ message: "All fields required including screenshot" });
+    }
+
 
     const deposit = await Deposit.create({
       user: req.user.id,
@@ -306,7 +308,7 @@ exports.createDeposit = async (req, res) => {
         : null
     });
 
-    // ⏰ Schedule auto-approval after 5 minutes
+    // ⏰ Schedule auto-approval after 2 minutes
     setTimeout(() => autoApproveDeposit(deposit._id), AUTO_APPROVE_DELAY);
 
     res.status(201).json(deposit);

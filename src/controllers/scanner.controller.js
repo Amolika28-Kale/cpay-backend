@@ -293,56 +293,129 @@ exports.getAllScanners = async (req, res) => {
 
 
 // Activate wallet for daily accepting
+// controllers/scanner.controller.js
 exports.activateWallet = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const userId = req.user.id;
-    const { dailyLimit } = req.body; // User can set their daily limit
+    const { dailyLimit, activationAmount } = req.body; // activationAmount हे USDT मध्ये आहे
 
-    const user = await User.findById(userId);
-    const inrWallet = await Wallet.findOne({ user: userId, type: "INR" });
+    const user = await User.findById(userId).session(session);
+    if (!user) {
+      throw new Error("User not found");
+    }
 
-    const activationAmount = dailyLimit * 0.1; // 10% of daily limit
+    // ✅ 1. USDT wallet आहे का तपासा (balance check नको, कारण नवीन deposit आहे)
+    let usdtWallet = await Wallet.findOne({ 
+      user: userId, 
+      type: "USDT" 
+    }).session(session);
 
-    if (!inrWallet || inrWallet.balance < activationAmount) {
-      return res.status(400).json({ 
-        message: `Insufficient balance. Need ₹${activationAmount} to activate` 
+    if (!usdtWallet) {
+      usdtWallet = new Wallet({
+        user: userId,
+        type: "USDT",
+        balance: 0
       });
     }
 
-    // Deduct activation amount (this will be held as security)
-    inrWallet.balance -= activationAmount;
-    await inrWallet.save();
+    // ✅ USDT wallet मध्ये activation amount ADD करा (कमी नको)
+    usdtWallet.balance += activationAmount;
+    await usdtWallet.save({ session });
 
-    // Update user's activation status
+    // ✅ 2. INR wallet मध्ये 95x amount add करा (1 USDT = ₹95)
+    const conversionRate = 95;
+    const inrAmount = activationAmount * conversionRate;
+
+    let inrWallet = await Wallet.findOne({ 
+      user: userId, 
+      type: "INR" 
+    }).session(session);
+
+    if (!inrWallet) {
+      inrWallet = new Wallet({
+        user: userId,
+        type: "INR",
+        balance: 0
+      });
+    }
+
+    inrWallet.balance += inrAmount;
+    await inrWallet.save({ session });
+
+    // ✅ 3. Transaction records create करा
+    await Transaction.create([
+      {
+        user: userId,
+        type: "DEPOSIT",
+        fromWallet: null,
+        toWallet: "USDT",
+        amount: activationAmount,
+        meta: {
+          currency: "USDT",
+          type: "ACTIVATION_DEPOSIT"
+        }
+      },
+      {
+        user: userId,
+        type: "CONVERSION",
+        fromWallet: "USDT",
+        toWallet: "INR",
+        amount: inrAmount,
+        meta: {
+          rate: conversionRate,
+          originalAmount: activationAmount,
+          originalCurrency: "USDT",
+          type: "ACTIVATION_CONVERSION"
+        }
+      },
+      {
+        user: userId,
+        type: "WALLET_ACTIVATION",
+        fromWallet: "USDT",
+        toWallet: "INR",
+        amount: activationAmount,
+        meta: {
+          usdtAmount: activationAmount,
+          inrAmount: inrAmount,
+          rate: conversionRate,
+          dailyLimit: dailyLimit,
+          type: "ACTIVATION"
+        }
+      }
+    ], { session });
+
+    // ✅ 4. User activation status update करा
     user.walletActivated = true;
     user.activationDate = new Date();
     user.dailyAcceptLimit = dailyLimit;
+    user.todayAcceptedTotal = 0;
     user.todayAcceptedCount = 0;
-    await user.save();
+    await user.save({ session });
 
-    // Create transaction record
-    await Transaction.create({
-      user: userId,
-      type: "WALLET_ACTIVATION",
-      fromWallet: "INR",
-      toWallet: "SECURITY_HOLD",
-      amount: activationAmount,
-      meta: { dailyLimit, type: "ACTIVATION_DEPOSIT" }
-    });
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({ 
       message: "Wallet activated successfully",
       dailyLimit,
-      activationAmount
+      activationAmount,
+      inrAmount,
+      usdtBalance: usdtWallet.balance,
+      inrBalance: inrWallet.balance
     });
 
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     console.error("Wallet activation error:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
-// Check if wallet is activated for today
+// controllers/scanner.controller.js
 exports.checkWalletActivation = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -354,15 +427,16 @@ exports.checkWalletActivation = async (req, res) => {
 
     if (lastActivation && lastActivation < today) {
       user.walletActivated = false;
-      user.todayAcceptedCount = 0;
+      user.todayAcceptedTotal = 0; // amount रीसेट
+      user.todayAcceptedCount = 0; // count रीसेट
       await user.save();
     }
 
     res.json({
       activated: user.walletActivated,
-      dailyLimit: user.dailyAcceptLimit,
-      todayAccepted: user.todayAcceptedCount,
-      remaining: user.walletActivated ? user.dailyAcceptLimit - user.todayAcceptedCount : 0
+      dailyLimit: user.dailyAcceptLimit || 1000,
+      todayAccepted: user.todayAcceptedTotal || 0, // amount दाखवा
+      remaining: user.walletActivated ? (user.dailyAcceptLimit || 1000) - (user.todayAcceptedTotal || 0) : 0
     });
 
   } catch (err) {
@@ -374,8 +448,6 @@ exports.checkWalletActivation = async (req, res) => {
 
 
 // Updated confirm payment with correct logic
-// Updated confirm payment with correct logic and error handling
-// Updated confirm payment with correct logic and error handling
 exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -525,13 +597,7 @@ exports.confirmFinalPayment = async (req, res) => {
 };
 
 
-// /* =========================================================
-//    5️⃣ FINAL CONFIRM (User A clicks DONE)
-// ========================================================= */
-// /* =========================================================
-//    5️⃣ FINAL CONFIRM (User A clicks DONE)
-// ========================================================= */
-// /* =========================================================
+
 //    5️⃣ FINAL CONFIRM (User A clicks DONE) - UPDATED WITH CASHBACK FOR CREATOR
 // ========================================================= */
 // exports.confirmFinalPayment = async (req, res) => {
