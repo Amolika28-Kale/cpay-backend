@@ -1,5 +1,5 @@
 const express = require('express');
-const { getWallets, transferCashback, getWalletSummary, getCurrentRate, selfPay } = require('../controllers/wallet.controller');
+const { getWallets, transferCashback, getWalletSummary, getCurrentRate, selfPay, getTeamCashbackSummary } = require('../controllers/wallet.controller');
 const userAuth = require('../middlewares/userAuth.middleware');
 const Wallet = require('../models/Wallet');
 
@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.get('/', userAuth, getWallets);
 router.get('/my', userAuth, getWalletSummary);
+// routes/wallet.routes.js - Add this endpoint
+router.get("/team-cashback", userAuth, getTeamCashbackSummary);
 router.post('/transfer-cashback', userAuth, transferCashback);
 router.get('/rate', getCurrentRate);
 router.post('/self-pay', userAuth, selfPay);

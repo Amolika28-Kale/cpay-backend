@@ -37,6 +37,11 @@ router.get(
   scannerController.getActiveRequests
 );
 
+// routes/scanner.routes.js - Add these endpoints
+router.get("/activation-status", userAuth, scannerController.checkWalletActivation);
+router.post("/activate-wallet", userAuth, scannerController.activateWallet);
+
+
 /* =====================================================
    ACCEPT REQUEST (User B)
 ===================================================== */

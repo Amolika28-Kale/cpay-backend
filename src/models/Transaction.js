@@ -1,3 +1,4 @@
+// models/Transaction.js
 const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema(
@@ -22,22 +23,24 @@ const transactionSchema = new mongoose.Schema(
       "CASHBACK",
       "SELF_PAY",
       "CASHBACK_TRANSFER",
-      "CONVERSION", // ADD THIS
-      "USDT_CREDIT", // Optional: for USDT deposits
-      "INR_CREDIT" // Optional: for INR credits
+      "CONVERSION",
+      "USDT_CREDIT",
+      "INR_CREDIT",
+      "TEAM_CASHBACK", // ✅ हे असायला हवे
+      "WALLET_ACTIVATION" // ✅ हे असायला हवे
     ],
     required: true,
   },
 
   fromWallet: {
     type: String,
-    enum: ["INR", "CASHBACK", "USDT", null], // ADD "USDT" HERE
+    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", null], // "SECURITY_HOLD" जोडा
     default: null
   },
 
   toWallet: {
     type: String,
-    enum: ["INR", "CASHBACK", "USDT", null], // ADD "USDT" HERE
+    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", null], // "SECURITY_HOLD" जोडा
     default: null
   },
 

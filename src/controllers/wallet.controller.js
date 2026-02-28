@@ -1,6 +1,8 @@
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const { default: mongoose } = require('mongoose');
+const ReferralService = require('../../services/referralService');
+
 
 exports.getWallets = async (req, res) => {
   try {
@@ -12,39 +14,39 @@ exports.getWallets = async (req, res) => {
   }
 };
 
-exports.transferCashback = async (req, res) => {
-  try {
-    const { amount } = req.body;
-    const userId = req.user.id;
+// exports.transferCashback = async (req, res) => {
+//   try {
+//     const { amount } = req.body;
+//     const userId = req.user.id;
 
-    if (amount <= 0) return res.status(400).json({ message: 'Invalid amount' });
+//     if (amount <= 0) return res.status(400).json({ message: 'Invalid amount' });
 
-    const cashbackWallet = await Wallet.findOne({ user: userId, type: 'CASHBACK' });
-    const inrWallet = await Wallet.findOne({ user: userId, type: 'INR' });
+//     const cashbackWallet = await Wallet.findOne({ user: userId, type: 'CASHBACK' });
+//     const inrWallet = await Wallet.findOne({ user: userId, type: 'INR' });
 
-    if (!cashbackWallet || cashbackWallet.balance < amount) {
-      return res.status(400).json({ message: 'Insufficient cashback balance' });
-    }
+//     if (!cashbackWallet || cashbackWallet.balance < amount) {
+//       return res.status(400).json({ message: 'Insufficient cashback balance' });
+//     }
 
-    cashbackWallet.balance -= amount;
-    inrWallet.balance += amount;
+//     cashbackWallet.balance -= amount;
+//     inrWallet.balance += amount;
 
-    await cashbackWallet.save();
-    await inrWallet.save();
+//     await cashbackWallet.save();
+//     await inrWallet.save();
 
-    await Transaction.create({
-      user: userId,
-      type: 'CASHBACK_TRANSFER',
-      fromWallet: 'CASHBACK',
-      toWallet: 'INR',
-      amount
-    });
+//     await Transaction.create({
+//       user: userId,
+//       type: 'CASHBACK_TRANSFER',
+//       fromWallet: 'CASHBACK',
+//       toWallet: 'INR',
+//       amount
+//     });
 
-    res.json({ message: 'Transfer successful' });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
-};
+//     res.json({ message: 'Transfer successful' });
+//   } catch (err) {
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// };
 exports.getWalletSummary = async (req, res) => {
   try {
     const wallets = await Wallet.find({ user: req.user.id });
@@ -97,3 +99,61 @@ exports.selfPay = async (req, res) => {
 
   res.json({ message: "Payment Successful" });
 };
+
+
+exports.transferCashback = async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const userId = req.user.id;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: 'Invalid amount' });
+    }
+
+    const cashbackWallet = await Wallet.findOne({ user: userId, type: 'CASHBACK' });
+    const inrWallet = await Wallet.findOne({ user: userId, type: 'INR' });
+
+    if (!cashbackWallet || cashbackWallet.balance < amount) {
+      return res.status(400).json({ message: 'Insufficient cashback balance' });
+    }
+
+    cashbackWallet.balance -= amount;
+    inrWallet.balance += amount;
+
+    await cashbackWallet.save();
+    await inrWallet.save();
+
+    // Create transaction record
+    await Transaction.create({
+      user: userId,
+      type: 'CASHBACK_TRANSFER',
+      fromWallet: 'CASHBACK',
+      toWallet: 'INR',
+      amount
+    });
+
+    // Process team cashback for uplines (when user redeems cashback)
+    await ReferralService.processTeamCashback(userId, amount, 'CASHBACK_REDEEM');
+
+    res.json({ 
+      message: 'Transfer successful',
+      transferredAmount: amount 
+    });
+  } catch (err) {
+    console.error("Transfer cashback error:", err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Add new endpoint for team cashback summary
+exports.getTeamCashbackSummary = async (req, res) => {
+  try {
+    const summary = await ReferralService.getTeamCashbackSummary(req.user.id);
+    res.json(summary || {});
+  } catch (err) {
+    console.error("Team cashback summary error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+

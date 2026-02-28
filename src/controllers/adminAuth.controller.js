@@ -3,17 +3,28 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Rate = require('../models/Rate');
 
-
 // ================= ADMIN LOGIN =================
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { adminId, pin } = req.body;
 
-    const admin = await Admin.findOne({ email });
-    if (!admin) return res.status(404).json({ message: 'Admin not found' });
+    console.log("Admin login attempt:", { adminId, pin });
 
-    const match = await bcrypt.compare(password, admin.password);
-    if (!match) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!adminId || !pin) {
+      return res.status(400).json({ message: "Admin ID and PIN are required" });
+    }
+
+    adminId = adminId.trim().toUpperCase();
+
+    const admin = await Admin.findOne({ adminId });
+    if (!admin) {
+      return res.status(404).json({ message: "Admin ID not found" });
+    }
+
+    const match = await bcrypt.compare(pin, admin.pin);
+    if (!match) {
+      return res.status(400).json({ message: "Invalid PIN" });
+    }
 
     const token = jwt.sign(
       { id: admin._id, role: admin.role },
@@ -23,14 +34,18 @@ exports.login = async (req, res) => {
 
     res.json({
       token,
-      user: admin
+      user: {
+        _id: admin._id,
+        adminId: admin.adminId,
+        role: admin.role
+      }
     });
 
   } catch (err) {
+    console.error("Admin login error:", err);
     res.status(500).json({ message: err.message });
   }
 };
-
 
 // ================= SET CONVERSION RATE =================
 exports.setConversionRate = async (req, res) => {
@@ -55,5 +70,24 @@ exports.setConversionRate = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// ================= SEED ADMIN =================
+exports.seedAdmin = async () => {
+  try {
+    const existingAdmin = await Admin.findOne({ adminId: 'ADMIN001' });
+    
+    if (!existingAdmin) {
+      await Admin.create({
+        adminId: 'ADMIN001',
+        pin: '123456'
+      });
+      console.log('✅ Admin seeded: ADMIN001 / 123456');
+    } else {
+      console.log('Admin already exists');
+    }
+  } catch (err) {
+    console.error('Error seeding admin:', err);
   }
 };
