@@ -69,63 +69,38 @@ exports.getActiveRequests = async (req, res) => {
 // /* =========================================================
 //    3️⃣ ACCEPT REQUEST (User B Accept)
 
-
-/* =========================================================
-   3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED WITH DAILY LIMIT
-========================================================= */
 exports.acceptRequest = async (req, res) => {
   try {
     const { scannerId } = req.body;
     const userId = req.user.id;
 
-    console.log("Accept request received:", { scannerId, userId });
-
-    // Check wallet activation and daily limit
     const user = await User.findById(userId);
     
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.walletActivated) return res.status(400).json({ message: "Please activate your wallet first" });
+    
+    // Amount check - daily limit पेक्षा जास्त तर नको
+    const scanner = await Scanner.findById(scannerId);
+    if (!scanner) return res.status(404).json({ message: "Scanner not found" });
+    
+    if (user.todayAcceptedTotal + scanner.amount > user.dailyAcceptLimit) {
+      return res.status(400).json({ message: "Daily amount limit exceeded" });
     }
 
-    if (!user.walletActivated) {
-      return res.status(400).json({ message: "Please activate your wallet first" });
-    }
+    // Update scanner
+    scanner.status = "ACCEPTED";
+    scanner.acceptedBy = userId;
+    scanner.acceptedAt = new Date();
+    await scanner.save();
 
-    if (user.todayAcceptedCount >= user.dailyAcceptLimit) {
-      return res.status(400).json({ message: "Daily accept limit reached" });
-    }
-
-    // Find and update the scanner
-    const scanner = await Scanner.findOneAndUpdate(
-      {
-        _id: scannerId,
-        status: "ACTIVE"
-      },
-      {
-        status: "ACCEPTED",
-        acceptedBy: userId,
-        acceptedAt: new Date()
-      },
-      { new: true }
-    );
-
-    if (!scanner) {
-      return res.status(400).json({ message: "Already accepted or expired" });
-    }
-
-    // Increment today's accepted count
-    user.todayAcceptedCount += 1;
+    // Update user's daily totals - amount वाढवा
+    user.todayAcceptedTotal = (user.todayAcceptedTotal || 0) + scanner.amount;
+    user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
     await user.save();
 
-    console.log("Request accepted successfully:", scanner._id);
-
-    res.json({
-      message: "Request accepted successfully",
-      scanner
-    });
+    res.json({ message: "Request accepted successfully" });
 
   } catch (err) {
-    console.error("Accept request error:", err);
     res.status(500).json({ message: err.message });
   }
 };

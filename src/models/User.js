@@ -45,8 +45,8 @@ const userSchema = new mongoose.Schema({
   walletActivated: { type: Boolean, default: false },
   activationDate: { type: Date, default: null },
  dailyAcceptLimit: { type: Number, default: 1000 }, // ₹ मध्ये
-  todayAcceptedTotal: { type: Number, default: 0 }, // आज accept केलेली एकूण रक्कम
-  todayAcceptedCount: { type: Number, default: 0 } // आज accept केलेल्या requests ची संख्या
+    todayAcceptedTotal: { type: Number, default: 0 }, // Amount wise
+  todayAcceptedCount: { type: Number, default: 0 }, // Count wise
 
 }, { timestamps: true });
 
