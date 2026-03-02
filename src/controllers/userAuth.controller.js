@@ -510,56 +510,133 @@ exports.register = async (req, res) => {
 /* ================= LOGIN ================= */
 // controllers/userAuth.controller.js - Login function with debug
 
+// exports.login = async (req, res) => {
+//   try {
+//     let { userId, pin } = req.body;
+
+//     console.log("Login attempt:", { userId, pin }); // Debug log
+
+//     if (!userId || !pin) {
+//       return res.status(400).json({ message: "User ID and PIN are required" });
+//     }
+
+//     userId = userId.trim().toUpperCase();
+
+//     const user = await User.findOne({ userId });
+//     console.log("User found:", user ? "Yes" : "No"); // Debug log
+    
+//     if (!user) {
+//       return res.status(404).json({ message: "User ID not found" });
+//     }
+
+//     console.log("Stored hashed PIN:", user.pin); // Debug log
+//     console.log("PIN from request:", pin); // Debug log
+
+//     const match = await bcryptjs.compare(pin, user.pin);
+//     console.log("PIN match:", match); // Debug log
+
+//     if (!match) {
+//       return res.status(400).json({ message: "Invalid PIN" });
+//     }
+
+//     const token = jwt.sign(
+//       { id: user._id, role: user.role },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     res.json({
+//       token,
+//       user: {
+//         _id: user._id,
+//         userId: user.userId,
+//         referralCode: user.referralCode,
+//         role: user.role,
+//       },
+//     });
+
+//   } catch (err) {
+//     console.error("Login Error:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+
+/* ================= LOGIN ================= */
 exports.login = async (req, res) => {
   try {
     let { userId, pin } = req.body;
 
-    console.log("Login attempt:", { userId, pin }); // Debug log
+    console.log("🔐 Login attempt:", { userId, pin: pin ? "******" : null });
 
+    // Validation
     if (!userId || !pin) {
-      return res.status(400).json({ message: "User ID and PIN are required" });
+      console.log("❌ Missing credentials");
+      return res.status(400).json({ 
+        message: "User ID and PIN are required" 
+      });
     }
 
-    userId = userId.trim().toUpperCase();
+    // Clean userId - remove spaces and convert to uppercase
+    userId = userId.toString().trim().toUpperCase();
+    
+    // Validate 6-digit format
+    if (!/^\d{6}$/.test(userId)) {
+      console.log("❌ Invalid format:", userId);
+      return res.status(400).json({ 
+        message: "User ID must be 6 digits" 
+      });
+    }
 
+    console.log("🔍 Searching for user:", userId);
     const user = await User.findOne({ userId });
-    console.log("User found:", user ? "Yes" : "No"); // Debug log
     
     if (!user) {
-      return res.status(404).json({ message: "User ID not found" });
+      console.log("❌ User not found:", userId);
+      return res.status(404).json({ 
+        message: "User ID not found" 
+      });
     }
 
-    console.log("Stored hashed PIN:", user.pin); // Debug log
-    console.log("PIN from request:", pin); // Debug log
-
+    console.log("✅ User found, comparing PIN...");
     const match = await bcryptjs.compare(pin, user.pin);
-    console.log("PIN match:", match); // Debug log
-
+    
     if (!match) {
-      return res.status(400).json({ message: "Invalid PIN" });
+      console.log("❌ PIN mismatch");
+      return res.status(400).json({ 
+        message: "Invalid PIN" 
+      });
     }
 
+    console.log("✅ PIN matched, generating token...");
     const token = jwt.sign(
-      { id: user._id, role: user.role },
+      { id: user._id, role: user.role, userId: user.userId },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    const safeUser = {
+      _id: user._id,
+      userId: user.userId,
+      referralCode: user.referralCode,
+      role: user.role,
+    };
+
+    console.log("✅ Login successful for:", userId);
     res.json({
+      success: true,
       token,
-      user: {
-        _id: user._id,
-        userId: user.userId,
-        referralCode: user.referralCode,
-        role: user.role,
-      },
+      user: safeUser
     });
 
   } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error("❌ Login Error:", err);
+    res.status(500).json({ 
+      message: err.message || "Server error" 
+    });
   }
 };
+
 
 /* ================= GET REFERRAL STATS ================= */
 exports.getReferralStats = async (req, res) => {

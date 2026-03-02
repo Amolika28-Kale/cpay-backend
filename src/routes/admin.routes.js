@@ -3,7 +3,7 @@ const router = express.Router();
 
 const adminAuth = require('../middlewares/adminAuth.middleware');
 
-const { login, setConversionRate } = require('../controllers/adminAuth.controller');
+const { login, setConversionRate, createAdmin, getAllAdmins, deleteAdmin } = require('../controllers/adminAuth.controller');
 
 const {
   getAllUsers,
@@ -27,6 +27,9 @@ const { togglePaymentMethod, getAllPaymentMethods } = require('../controllers/pa
 // Public
 router.post('/login', login);
 
+router.post('/create', createAdmin);
+router.get('/list', getAllAdmins);
+router.delete('/:id', deleteAdmin);
 // Protected
 router.post('/set-rate', adminAuth, setConversionRate);
 router.put('/payment-method/:id/toggle', adminAuth, togglePaymentMethod);
