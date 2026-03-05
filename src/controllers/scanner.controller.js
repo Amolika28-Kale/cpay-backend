@@ -143,6 +143,48 @@ exports.getActiveRequests = async (req, res) => {
 //   }
 // };
 
+// exports.acceptRequest = async (req, res) => {
+//   try {
+//     const { scannerId } = req.body;
+//     const userId = req.user.id;
+
+//     const user = await User.findById(userId);
+    
+//     if (!user) return res.status(404).json({ message: "User not found" });
+//     if (!user.walletActivated) return res.status(400).json({ message: "Please activate your wallet first" });
+    
+//     // Amount check - daily limit पेक्षा जास्त तर नको
+//     const scanner = await Scanner.findById(scannerId);
+//     if (!scanner) return res.status(404).json({ message: "Scanner not found" });
+    
+//     if (user.todayAcceptedTotal + scanner.amount > user.dailyAcceptLimit) {
+//       return res.status(400).json({ message: "Daily amount limit exceeded" });
+//     }
+
+//     // Update scanner
+//     scanner.status = "ACCEPTED";
+//     scanner.acceptedBy = userId;
+//     scanner.acceptedAt = new Date();
+//     await scanner.save();
+
+//     // Update user's daily totals - amount वाढवा
+//     user.todayAcceptedTotal = (user.todayAcceptedTotal || 0) + scanner.amount;
+//     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
+    
+//     // ✅ Mark first accept completed
+//     if (!user.firstAcceptCompleted) {
+//       user.firstAcceptCompleted = true;
+//     }
+    
+//     await user.save();
+
+//     res.json({ message: "Request accepted successfully" });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
 exports.acceptRequest = async (req, res) => {
   try {
     const { scannerId } = req.body;
@@ -481,28 +523,72 @@ exports.activateWallet = async (req, res) => {
   }
 };
 
-// controllers/scanner.controller.js
+// // controllers/scanner.controller.js
+// exports.checkWalletActivation = async (req, res) => {
+//   try {
+//     const user = await User.findById(req.user.id);
+    
+//     // Reset if it's a new day
+//     const lastActivation = user.activationDate;
+//     const today = new Date();
+//     today.setHours(0, 0, 0, 0);
+
+//     if (lastActivation && lastActivation < today) {
+//       user.walletActivated = false;
+//       user.todayAcceptedTotal = 0; // amount रीसेट
+//       user.todayAcceptedCount = 0; // count रीसेट
+//       await user.save();
+//     }
+
+//     res.json({
+//       activated: user.walletActivated,
+//       dailyLimit: user.dailyAcceptLimit || 1000,
+//       todayAccepted: user.todayAcceptedTotal || 0, // amount दाखवा
+//       remaining: user.walletActivated ? (user.dailyAcceptLimit || 1000) - (user.todayAcceptedTotal || 0) : 0
+//     });
+
+//   } catch (err) {
+//     console.error("Check activation error:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
 exports.checkWalletActivation = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     // Reset if it's a new day
     const lastActivation = user.activationDate;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (lastActivation && lastActivation < today) {
-      user.walletActivated = false;
-      user.todayAcceptedTotal = 0; // amount रीसेट
-      user.todayAcceptedCount = 0; // count रीसेट
-      await user.save();
+    // जर activation झालं असेल पण ते आजचं नसेल तर reset करा
+    if (user.walletActivated && lastActivation) {
+      const activationDay = new Date(lastActivation);
+      activationDay.setHours(0, 0, 0, 0);
+      
+      // जर activation दुसऱ्या दिवशीचं असेल तर reset
+      if (activationDay < today) {
+        console.log("New day detected - resetting activation");
+        user.walletActivated = false;
+        user.todayAcceptedTotal = 0;
+        user.todayAcceptedCount = 0;
+        await user.save();
+      }
     }
 
     res.json({
-      activated: user.walletActivated,
-      dailyLimit: user.dailyAcceptLimit || 1000,
-      todayAccepted: user.todayAcceptedTotal || 0, // amount दाखवा
-      remaining: user.walletActivated ? (user.dailyAcceptLimit || 1000) - (user.todayAcceptedTotal || 0) : 0
+      activated: user.walletActivated || false,
+      dailyLimit: user.walletActivated ? user.dailyAcceptLimit : 0,
+      todayAccepted: user.todayAcceptedTotal || 0,
+      remaining: user.walletActivated ? (user.dailyAcceptLimit - (user.todayAcceptedTotal || 0)) : 0,
+      activationDate: user.activationDate,
+      firstDepositCompleted: user.firstDepositCompleted || false,
+      firstAcceptCompleted: user.firstAcceptCompleted || false
     });
 
   } catch (err) {
@@ -510,8 +596,6 @@ exports.checkWalletActivation = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
-
 
 // // Updated confirm payment with correct logic
 // exports.confirmFinalPayment = async (req, res) => {
