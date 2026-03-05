@@ -236,7 +236,7 @@ userSchema.statics.addToReferralTree = async function(userId, referrerId, curren
   
   // Check if this level's leg is unlocked
   if (!referrer.isLegUnlocked(currentLevel)) {
-    console.log(`Level ${currentLevel} leg not unlocked for user ${referrerId}`);
+    // console.log(`Level ${currentLevel} leg not unlocked for user ${referrerId}`);
     return;
   }
   

@@ -635,11 +635,11 @@ exports.confirmFinalPayment = async (req, res) => {
     const acceptorId = scanner.acceptedBy; // This is User B (Acceptor)
     const amount = scanner.amount;
 
-    console.log("Confirming payment:", {
-      creatorId: userId,
-      acceptorId: acceptorId,
-      amount: amount
-    });
+    // console.log("Confirming payment:", {
+    //   creatorId: userId,
+    //   acceptorId: acceptorId,
+    //   amount: amount
+    // });
 
     // ✅ STEP 1: Debit from Creator (User A)
     const creatorWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
@@ -648,7 +648,7 @@ exports.confirmFinalPayment = async (req, res) => {
     }
     creatorWallet.balance -= amount;
     await creatorWallet.save({ session });
-    console.log(`Debited ₹${amount} from Creator (User A): ${userId}`);
+    // console.log(`Debited ₹${amount} from Creator (User A): ${userId}`);
 
     // ✅ STEP 2: Credit to Acceptor (User B)
     let acceptorWallet = await Wallet.findOne({ user: acceptorId, type: "INR" }).session(session);
@@ -657,7 +657,7 @@ exports.confirmFinalPayment = async (req, res) => {
     }
     acceptorWallet.balance += amount;
     await acceptorWallet.save({ session });
-    console.log(`Credited ₹${amount} to Acceptor (User B): ${acceptorId}`);
+    // console.log(`Credited ₹${amount} to Acceptor (User B): ${acceptorId}`);
 
     /* ================ CASHBACK DISTRIBUTION ================ */
     // 🔥 Cashback for Creator (User A) - 4%
@@ -668,7 +668,7 @@ exports.confirmFinalPayment = async (req, res) => {
     }
     creatorCashbackWallet.balance += creatorCashback;
     await creatorCashbackWallet.save({ session });
-    console.log(`Creator Cashback (4%): ₹${creatorCashback}`);
+    // console.log(`Creator Cashback (4%): ₹${creatorCashback}`);
 
     // 🔥 Cashback for Acceptor (User B) - 5%
     const acceptorCashback = Number((amount * 0.05).toFixed(2));
@@ -678,7 +678,7 @@ exports.confirmFinalPayment = async (req, res) => {
     }
     acceptorCashbackWallet.balance += acceptorCashback;
     await acceptorCashbackWallet.save({ session });
-    console.log(`Acceptor Cashback: ₹${acceptorCashback}`);
+    // console.log(`Acceptor Cashback: ₹${acceptorCashback}`);
 
     // Update scanner status
     scanner.status = "COMPLETED";

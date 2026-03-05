@@ -204,7 +204,7 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     const deposit = await Deposit.findById(depositId).session(session);
     
     if (!deposit || deposit.status !== "pending") {
-      console.log(`Deposit ${depositId} already processed or not found`);
+      // console.log(`Deposit ${depositId} already processed or not found`);
       await session.abortTransaction();
       session.endSession();
       return;
@@ -287,7 +287,7 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     await session.commitTransaction();
     session.endSession();
     
-    console.log(`✅ Deposit ${depositId} auto-approved successfully`);
+    // console.log(`✅ Deposit ${depositId} auto-approved successfully`);
 
   } catch (err) {
     await session.abortTransaction();
@@ -296,7 +296,7 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     // Retry logic for write conflicts
     if (err.code === 112 || err.codeName === 'WriteConflict') {
       if (retryCount < maxRetries) {
-        console.log(`⚠️ Write conflict for deposit ${depositId}, retrying... (${retryCount + 1}/${maxRetries})`);
+        // console.log(`⚠️ Write conflict for deposit ${depositId}, retrying... (${retryCount + 1}/${maxRetries})`);
         // Exponential backoff
         const delay = Math.pow(2, retryCount) * 100;
         await new Promise(resolve => setTimeout(resolve, delay));

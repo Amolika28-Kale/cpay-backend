@@ -21,7 +21,7 @@ class ReferralService {
 
         // Check if this level's leg is unlocked for the referrer
         if (!referrer.isLegUnlocked(level)) {
-          console.log(`Level ${level} leg not unlocked for ${referrer.userId}, skipping...`);
+          // console.log(`Level ${level} leg not unlocked for ${referrer.userId}, skipping...`);
           currentReferrerId = referrer.referredBy;
           level++;
           continue;
@@ -80,7 +80,7 @@ class ReferralService {
             }
           });
 
-          console.log(`✅ Level ${level} commission: ₹${commission} to ${referrer.userId} (${rate*100}%)`);
+          // console.log(`✅ Level ${level} commission: ₹${commission} to ${referrer.userId} (${rate*100}%)`);
         }
 
         currentReferrerId = referrer.referredBy;

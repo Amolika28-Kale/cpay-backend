@@ -473,7 +473,7 @@ exports.register = async (req, res) => {
 
     await user.save(); // This triggers the pre-save hook
 
-    console.log("User created with hashed PIN:", user.pin); // This should show a hash, not plain text
+    // console.log("User created with hashed PIN:", user.pin); // This should show a hash, not plain text
 
     // Create default wallets
     const walletTypes = ["USDT", "INR", "CASHBACK"];
@@ -502,7 +502,7 @@ exports.register = async (req, res) => {
     res.status(201).json({ token, user: safeUser });
 
   } catch (err) {
-    console.error("Register Error:", err);
+    // console.error("Register Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -567,11 +567,11 @@ exports.login = async (req, res) => {
   try {
     let { userId, pin } = req.body;
 
-    console.log("🔐 Login attempt:", { userId, pin: pin ? "******" : null });
+    // console.log("🔐 Login attempt:", { userId, pin: pin ? "******" : null });
 
     // Validation
     if (!userId || !pin) {
-      console.log("❌ Missing credentials");
+      // console.log("❌ Missing credentials");
       return res.status(400).json({ 
         message: "User ID and PIN are required" 
       });
@@ -582,33 +582,33 @@ exports.login = async (req, res) => {
     
     // Validate 6-digit format
     if (!/^\d{6}$/.test(userId)) {
-      console.log("❌ Invalid format:", userId);
+      // console.log("❌ Invalid format:", userId);
       return res.status(400).json({ 
         message: "User ID must be 6 digits" 
       });
     }
 
-    console.log("🔍 Searching for user:", userId);
+    // console.log("🔍 Searching for user:", userId);
     const user = await User.findOne({ userId });
     
     if (!user) {
-      console.log("❌ User not found:", userId);
+      // console.log("❌ User not found:", userId);
       return res.status(404).json({ 
         message: "User ID not found" 
       });
     }
 
-    console.log("✅ User found, comparing PIN...");
+    // console.log("✅ User found, comparing PIN...");
     const match = await bcryptjs.compare(pin, user.pin);
     
     if (!match) {
-      console.log("❌ PIN mismatch");
+      // console.log("❌ PIN mismatch");
       return res.status(400).json({ 
         message: "Invalid PIN" 
       });
     }
 
-    console.log("✅ PIN matched, generating token...");
+    // console.log("✅ PIN matched, generating token...");
     const token = jwt.sign(
       { id: user._id, role: user.role, userId: user.userId },
       process.env.JWT_SECRET,
@@ -622,7 +622,7 @@ exports.login = async (req, res) => {
       role: user.role,
     };
 
-    console.log("✅ Login successful for:", userId);
+    // console.log("✅ Login successful for:", userId);
     res.json({
       success: true,
       token,
@@ -630,7 +630,7 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Login Error:", err);
+    // console.error("❌ Login Error:", err);
     res.status(500).json({ 
       message: err.message || "Server error" 
     });
@@ -707,7 +707,7 @@ exports.getReferralStats = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Referral Stats Error:", err);
+    // console.error("Referral Stats Error:", err);
     res.status(500).json({ message: err.message });
   }
 };

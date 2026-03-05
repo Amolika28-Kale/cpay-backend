@@ -35,8 +35,8 @@ exports.getTodayTeamStats = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    console.log("📊 Fetching today's stats for user:", userId);
-    console.log("📅 Date range:", today, "to", tomorrow);
+    // console.log("📊 Fetching today's stats for user:", userId);
+    // console.log("📅 Date range:", today, "to", tomorrow);
 
     // 1️⃣ Get today's commission (TEAM_CASHBACK transactions for current user)
     const todayTransactions = await Transaction.find({
@@ -46,7 +46,7 @@ exports.getTodayTeamStats = async (req, res) => {
     });
 
     const todayEarnings = todayTransactions.reduce((sum, tx) => sum + tx.amount, 0);
-    console.log("💰 Today's earnings:", todayEarnings);
+    // console.log("💰 Today's earnings:", todayEarnings);
 
     // 2️⃣ Get all team members from referral tree (all 21 levels)
     const user = await User.findById(userId);
@@ -59,7 +59,7 @@ exports.getTodayTeamStats = async (req, res) => {
       }
     }
 
-    console.log("👥 Total team members:", allTeamMembers.length);
+    // console.log("👥 Total team members:", allTeamMembers.length);
 
     // 3️⃣ Get today's team cashback (all cashback transactions from team members)
     let todayTeamCashback = 0;
@@ -79,8 +79,8 @@ exports.getTodayTeamStats = async (req, res) => {
       todayActiveMembers = [...new Set(teamCashbackTx.map(tx => tx.user.toString()))];
     }
 
-    console.log("📈 Today's team cashback:", todayTeamCashback);
-    console.log("👤 Today's active members:", todayActiveMembers.length);
+    // console.log("📈 Today's team cashback:", todayTeamCashback);
+    // console.log("👤 Today's active members:", todayActiveMembers.length);
 
     res.json({
       success: true,
