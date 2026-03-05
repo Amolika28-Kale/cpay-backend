@@ -646,30 +646,66 @@ exports.getReferralStats = async (req, res) => {
 
     const cashbackWallet = await Wallet.findOne({ user: user._id, type: "CASHBACK" });
 
-    // Get all downline counts
+    // ✅ Get all downline counts for 21 levels
     const referralTree = {
       level1: user.referralTree?.level1?.length || 0,
       level2: user.referralTree?.level2?.length || 0,
       level3: user.referralTree?.level3?.length || 0,
       level4: user.referralTree?.level4?.length || 0,
       level5: user.referralTree?.level5?.length || 0,
+      level6: user.referralTree?.level6?.length || 0,
+      level7: user.referralTree?.level7?.length || 0,
+      level8: user.referralTree?.level8?.length || 0,
+      level9: user.referralTree?.level9?.length || 0,
+      level10: user.referralTree?.level10?.length || 0,
+      level11: user.referralTree?.level11?.length || 0,
+      level12: user.referralTree?.level12?.length || 0,
+      level13: user.referralTree?.level13?.length || 0,
+      level14: user.referralTree?.level14?.length || 0,
+      level15: user.referralTree?.level15?.length || 0,
+      level16: user.referralTree?.level16?.length || 0,
+      level17: user.referralTree?.level17?.length || 0,
+      level18: user.referralTree?.level18?.length || 0,
+      level19: user.referralTree?.level19?.length || 0,
+      level20: user.referralTree?.level20?.length || 0,
+      level21: user.referralTree?.level21?.length || 0
+    };
+
+    // ✅ Earnings by level for 21 levels
+    const earningsByLevel = {
+      level1: user.referralEarnings?.level1 || 0,
+      level2: user.referralEarnings?.level2 || 0,
+      level3: user.referralEarnings?.level3 || 0,
+      level4: user.referralEarnings?.level4 || 0,
+      level5: user.referralEarnings?.level5 || 0,
+      level6: user.referralEarnings?.level6 || 0,
+      level7: user.referralEarnings?.level7 || 0,
+      level8: user.referralEarnings?.level8 || 0,
+      level9: user.referralEarnings?.level9 || 0,
+      level10: user.referralEarnings?.level10 || 0,
+      level11: user.referralEarnings?.level11 || 0,
+      level12: user.referralEarnings?.level12 || 0,
+      level13: user.referralEarnings?.level13 || 0,
+      level14: user.referralEarnings?.level14 || 0,
+      level15: user.referralEarnings?.level15 || 0,
+      level16: user.referralEarnings?.level16 || 0,
+      level17: user.referralEarnings?.level17 || 0,
+      level18: user.referralEarnings?.level18 || 0,
+      level19: user.referralEarnings?.level19 || 0,
+      level20: user.referralEarnings?.level20 || 0,
+      level21: user.referralEarnings?.level21 || 0,
+      total: user.referralEarnings?.total || 0
     };
 
     res.json({
       referralCode: user.referralCode,
-      totalReferrals: user.totalReferrals || 0,
+      totalReferrals: Object.values(referralTree).reduce((a, b) => a + b, 0),
       referralEarnings: user.referralEarnings || { total: 0 },
       cashbackBalance: cashbackWallet?.balance || 0,
       referralTree,
-      earningsByLevel: {
-        level1: user.referralEarnings?.level1 || 0,
-        level2: user.referralEarnings?.level2 || 0,
-        level3: user.referralEarnings?.level3 || 0,
-        level4: user.referralEarnings?.level4 || 0,
-        level5: user.referralEarnings?.level5 || 0,
-        total: user.referralEarnings?.total || 0
-      }
+      earningsByLevel
     });
+
   } catch (err) {
     console.error("Referral Stats Error:", err);
     res.status(500).json({ message: err.message });

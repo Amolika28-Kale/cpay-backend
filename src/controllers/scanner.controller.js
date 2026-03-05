@@ -66,8 +66,44 @@ exports.getActiveRequests = async (req, res) => {
 
 
 
-// /* =========================================================
-//    3️⃣ ACCEPT REQUEST (User B Accept)
+// // /* =========================================================
+// //    3️⃣ ACCEPT REQUEST (User B Accept)
+
+// exports.acceptRequest = async (req, res) => {
+//   try {
+//     const { scannerId } = req.body;
+//     const userId = req.user.id;
+
+//     const user = await User.findById(userId);
+    
+//     if (!user) return res.status(404).json({ message: "User not found" });
+//     if (!user.walletActivated) return res.status(400).json({ message: "Please activate your wallet first" });
+    
+//     // Amount check - daily limit पेक्षा जास्त तर नको
+//     const scanner = await Scanner.findById(scannerId);
+//     if (!scanner) return res.status(404).json({ message: "Scanner not found" });
+    
+//     if (user.todayAcceptedTotal + scanner.amount > user.dailyAcceptLimit) {
+//       return res.status(400).json({ message: "Daily amount limit exceeded" });
+//     }
+
+//     // Update scanner
+//     scanner.status = "ACCEPTED";
+//     scanner.acceptedBy = userId;
+//     scanner.acceptedAt = new Date();
+//     await scanner.save();
+
+//     // Update user's daily totals - amount वाढवा
+//     user.todayAcceptedTotal = (user.todayAcceptedTotal || 0) + scanner.amount;
+//     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
+//     await user.save();
+
+//     res.json({ message: "Request accepted successfully" });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
 
 exports.acceptRequest = async (req, res) => {
   try {
@@ -104,8 +140,6 @@ exports.acceptRequest = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
-
 
 
 /* =========================================================
@@ -268,21 +302,35 @@ exports.getAllScanners = async (req, res) => {
 
 
 // Activate wallet for daily accepting
-// controllers/scanner.controller.js
 exports.activateWallet = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
-
+  
   try {
+    session.startTransaction({
+      readPreference: 'primary',
+      readConcern: { level: 'local' },
+      writeConcern: { w: 'majority' }
+    });
+
     const userId = req.user.id;
-    const { dailyLimit, activationAmount } = req.body; // activationAmount हे USDT मध्ये आहे
+    const { dailyLimit, activationAmount } = req.body;
 
     const user = await User.findById(userId).session(session);
     if (!user) {
       throw new Error("User not found");
     }
 
-    // ✅ 1. USDT wallet आहे का तपासा (balance check नको, कारण नवीन deposit आहे)
+    // ✅ Check if wallet is already activated
+    if (user.walletActivated) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ 
+        message: "Wallet already activated",
+        dailyLimit: user.dailyAcceptLimit 
+      });
+    }
+
+    // ✅ USDT wallet मध्ये activation amount ADD करा
     let usdtWallet = await Wallet.findOne({ 
       user: userId, 
       type: "USDT" 
@@ -296,11 +344,10 @@ exports.activateWallet = async (req, res) => {
       });
     }
 
-    // ✅ USDT wallet मध्ये activation amount ADD करा (कमी नको)
     usdtWallet.balance += activationAmount;
     await usdtWallet.save({ session });
 
-    // ✅ 2. INR wallet मध्ये 95x amount add करा (1 USDT = ₹95)
+    // ✅ INR wallet मध्ये 95x amount add करा
     const conversionRate = 95;
     const inrAmount = activationAmount * conversionRate;
 
@@ -320,7 +367,7 @@ exports.activateWallet = async (req, res) => {
     inrWallet.balance += inrAmount;
     await inrWallet.save({ session });
 
-    // ✅ 3. Transaction records create करा
+    // ✅ Transaction records
     await Transaction.create([
       {
         user: userId,
@@ -362,7 +409,7 @@ exports.activateWallet = async (req, res) => {
       }
     ], { session });
 
-    // ✅ 4. User activation status update करा
+    // ✅ User activation status update
     user.walletActivated = true;
     user.activationDate = new Date();
     user.dailyAcceptLimit = dailyLimit;
@@ -422,6 +469,155 @@ exports.checkWalletActivation = async (req, res) => {
 
 
 
+// // Updated confirm payment with correct logic
+// exports.confirmFinalPayment = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { scannerId } = req.body;
+//     const userId = req.user.id; // This is User A (Creator)
+
+//     const scanner = await Scanner.findById(scannerId).session(session);
+//     if (!scanner) throw new Error("Request not found");
+//     if (scanner.status !== "PAYMENT_SUBMITTED") throw new Error("Payment proof not yet submitted");
+//     if (scanner.user.toString() !== userId) throw new Error("Unauthorized: Only creator can confirm");
+
+//     const acceptorId = scanner.acceptedBy; // This is User B (Acceptor)
+//     const amount = scanner.amount;
+
+//     console.log("Confirming payment:", {
+//       creatorId: userId,
+//       acceptorId: acceptorId,
+//       amount: amount
+//     });
+
+//     // ✅ STEP 1: Debit from Creator (User A)
+//     const creatorWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
+//     if (!creatorWallet || creatorWallet.balance < amount) {
+//       throw new Error("Creator's INR balance is too low");
+//     }
+//     creatorWallet.balance -= amount;
+//     await creatorWallet.save({ session });
+//     console.log(`Debited ₹${amount} from Creator (User A): ${userId}`);
+
+//     // ✅ STEP 2: Credit to Acceptor (User B)
+//     let acceptorWallet = await Wallet.findOne({ user: acceptorId, type: "INR" }).session(session);
+//     if (!acceptorWallet) {
+//       acceptorWallet = new Wallet({ user: acceptorId, type: "INR", balance: 0 });
+//     }
+//     acceptorWallet.balance += amount;
+//     await acceptorWallet.save({ session });
+//     console.log(`Credited ₹${amount} to Acceptor (User B): ${acceptorId}`);
+
+//     /* ================ CASHBACK DISTRIBUTION ================ */
+//     // 🔥 Cashback for Creator (User A) - 1%
+//     const creatorCashback = Number((amount * 0.01).toFixed(2));
+//     let creatorCashbackWallet = await Wallet.findOne({ user: userId, type: "CASHBACK" }).session(session);
+//     if (!creatorCashbackWallet) {
+//       creatorCashbackWallet = new Wallet({ user: userId, type: "CASHBACK", balance: 0 });
+//     }
+//     creatorCashbackWallet.balance += creatorCashback;
+//     await creatorCashbackWallet.save({ session });
+//     console.log(`Creator Cashback: ₹${creatorCashback}`);
+
+//     // 🔥 Cashback for Acceptor (User B) - 5%
+//     const acceptorCashback = Number((amount * 0.05).toFixed(2));
+//     let acceptorCashbackWallet = await Wallet.findOne({ user: acceptorId, type: "CASHBACK" }).session(session);
+//     if (!acceptorCashbackWallet) {
+//       acceptorCashbackWallet = new Wallet({ user: acceptorId, type: "CASHBACK", balance: 0 });
+//     }
+//     acceptorCashbackWallet.balance += acceptorCashback;
+//     await acceptorCashbackWallet.save({ session });
+//     console.log(`Acceptor Cashback: ₹${acceptorCashback}`);
+
+//     // Update scanner status
+//     scanner.status = "COMPLETED";
+//     scanner.completedAt = new Date();
+//     await scanner.save({ session });
+
+//     // Create ledger transactions
+//     const transactions = [
+//       { user: userId, type: "DEBIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId, meta: { type: "PAYMENT_SENT_TO_ACCEPTOR" } },
+//       { user: acceptorId, type: "CREDIT", fromWallet: "INR", toWallet: "INR", amount, relatedScanner: scannerId, meta: { type: "PAYMENT_RECEIVED_FROM_CREATOR" } },
+//       { user: userId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: creatorCashback, relatedScanner: scannerId, meta: { type: "CREATOR_CASHBACK" } },
+//       { user: acceptorId, type: "CASHBACK", fromWallet: "INR", toWallet: "CASHBACK", amount: acceptorCashback, relatedScanner: scannerId, meta: { type: "ACCEPTOR_CASHBACK" } }
+//     ];
+
+//     await Transaction.insertMany(transactions, { session });
+
+//     /* ================ REFERRAL COMMISSION (1%) ================ */
+//     const acceptorUser = await User.findById(acceptorId).session(session);
+//     if (acceptorUser && acceptorUser.referredBy) {
+//       const referrerId = acceptorUser.referredBy;
+//       const referralBonus = Number((amount * 0.01).toFixed(2));
+
+//       // ✅ FIXED: Update specific fields in referralEarnings object
+//       await Wallet.findOneAndUpdate(
+//         { user: referrerId, type: "CASHBACK" },
+//         { $inc: { balance: referralBonus } },
+//         { upsert: true, session }
+//       );
+
+//       // ✅ FIXED: Update referralEarnings.total instead of the whole object
+//       await User.findByIdAndUpdate(
+//         referrerId, 
+//         { 
+//           $inc: { 
+//             'referralEarnings.total': referralBonus,
+//             'referralEarnings.level1': referralBonus // Assuming this is level 1 commission
+//           } 
+//         },
+//         { session }
+//       );
+
+//       await Transaction.create([{
+//         user: referrerId,
+//         type: "CASHBACK",
+//         fromWallet: "INR",
+//         toWallet: "CASHBACK",
+//         amount: referralBonus,
+//         relatedScanner: scannerId,
+//         meta: { type: "REFERRAL_COMMISSION" }
+//       }], { session });
+//     }
+
+//     // Process team cashback for both users' uplines
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     // Team cashback processing - transaction commit नंतर
+//     try {
+//       await ReferralService.processTeamCashback(userId, creatorCashback, 'CREATOR_CASHBACK', scannerId);
+//     } catch (err) {
+//       console.error("Error processing team cashback for creator:", err);
+//     }
+    
+//     try {
+//       await ReferralService.processTeamCashback(acceptorId, acceptorCashback, 'ACCEPTOR_CASHBACK', scannerId);
+//     } catch (err) {
+//       console.error("Error processing team cashback for acceptor:", err);
+//     }
+    
+//     res.json({ 
+//       message: "Transaction successful",
+//       transaction: {
+//         amount,
+//         creatorId: userId,
+//         acceptorId,
+//         creatorCashback,
+//         acceptorCashback
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error("Confirm payment error:", err);
+//     await session.abortTransaction();
+//     session.endSession();
+//     res.status(400).json({ message: err.message });
+//   }
+// };
+
 // Updated confirm payment with correct logic
 exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
@@ -464,15 +660,15 @@ exports.confirmFinalPayment = async (req, res) => {
     console.log(`Credited ₹${amount} to Acceptor (User B): ${acceptorId}`);
 
     /* ================ CASHBACK DISTRIBUTION ================ */
-    // 🔥 Cashback for Creator (User A) - 1%
-    const creatorCashback = Number((amount * 0.01).toFixed(2));
+    // 🔥 Cashback for Creator (User A) - 4%
+    const creatorCashback = Number((amount * 0.04).toFixed(2)); // 1% वरून 4% केले
     let creatorCashbackWallet = await Wallet.findOne({ user: userId, type: "CASHBACK" }).session(session);
     if (!creatorCashbackWallet) {
       creatorCashbackWallet = new Wallet({ user: userId, type: "CASHBACK", balance: 0 });
     }
     creatorCashbackWallet.balance += creatorCashback;
     await creatorCashbackWallet.save({ session });
-    console.log(`Creator Cashback: ₹${creatorCashback}`);
+    console.log(`Creator Cashback (4%): ₹${creatorCashback}`);
 
     // 🔥 Cashback for Acceptor (User B) - 5%
     const acceptorCashback = Number((amount * 0.05).toFixed(2));
@@ -499,26 +695,26 @@ exports.confirmFinalPayment = async (req, res) => {
 
     await Transaction.insertMany(transactions, { session });
 
-    /* ================ REFERRAL COMMISSION (1%) ================ */
+    /* ================ REFERRAL COMMISSION (OLD - REMOVE THIS) ================ */
+    // हा भाग काढून टाका कारण आता ReferralService हे सगळं हँडल करेल
+    /*
     const acceptorUser = await User.findById(acceptorId).session(session);
     if (acceptorUser && acceptorUser.referredBy) {
       const referrerId = acceptorUser.referredBy;
       const referralBonus = Number((amount * 0.01).toFixed(2));
 
-      // ✅ FIXED: Update specific fields in referralEarnings object
       await Wallet.findOneAndUpdate(
         { user: referrerId, type: "CASHBACK" },
         { $inc: { balance: referralBonus } },
         { upsert: true, session }
       );
 
-      // ✅ FIXED: Update referralEarnings.total instead of the whole object
       await User.findByIdAndUpdate(
         referrerId, 
         { 
           $inc: { 
             'referralEarnings.total': referralBonus,
-            'referralEarnings.level1': referralBonus // Assuming this is level 1 commission
+            'referralEarnings.level1': referralBonus
           } 
         },
         { session }
@@ -534,19 +730,21 @@ exports.confirmFinalPayment = async (req, res) => {
         meta: { type: "REFERRAL_COMMISSION" }
       }], { session });
     }
+    */
 
-    // Process team cashback for both users' uplines
     await session.commitTransaction();
     session.endSession();
 
-    // Team cashback processing - transaction commit नंतर
+    // ✅ Team cashback processing - transaction commit नंतर (नवीन 21-Level system)
     try {
+      // Creator च्या cashback वर team cashback
       await ReferralService.processTeamCashback(userId, creatorCashback, 'CREATOR_CASHBACK', scannerId);
     } catch (err) {
       console.error("Error processing team cashback for creator:", err);
     }
     
     try {
+      // Acceptor च्या cashback वर team cashback
       await ReferralService.processTeamCashback(acceptorId, acceptorCashback, 'ACCEPTOR_CASHBACK', scannerId);
     } catch (err) {
       console.error("Error processing team cashback for acceptor:", err);

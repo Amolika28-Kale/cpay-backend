@@ -189,16 +189,24 @@ const Transaction = require("../models/Transaction");
 
 const TEST_MODE = true; // production madhe false kara
 const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // Changed from 5 to 2 minutes
-// Auto-approve function
-const autoApproveDeposit = async (depositId) => {
+// Auto-approve function with retry logic
+const autoApproveDeposit = async (depositId, retryCount = 0) => {
+  const maxRetries = 3;
   const session = await mongoose.startSession();
-  session.startTransaction();
-
+  
   try {
+    session.startTransaction({
+      readPreference: 'primary',
+      readConcern: { level: 'local' },
+      writeConcern: { w: 'majority' }
+    });
+
     const deposit = await Deposit.findById(depositId).session(session);
     
     if (!deposit || deposit.status !== "pending") {
       console.log(`Deposit ${depositId} already processed or not found`);
+      await session.abortTransaction();
+      session.endSession();
       return;
     }
 
@@ -284,7 +292,21 @@ const autoApproveDeposit = async (depositId) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    console.error("❌ Auto-approve error:", err);
+    
+    // Retry logic for write conflicts
+    if (err.code === 112 || err.codeName === 'WriteConflict') {
+      if (retryCount < maxRetries) {
+        console.log(`⚠️ Write conflict for deposit ${depositId}, retrying... (${retryCount + 1}/${maxRetries})`);
+        // Exponential backoff
+        const delay = Math.pow(2, retryCount) * 100;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return autoApproveDeposit(depositId, retryCount + 1);
+      } else {
+        console.error(`❌ Max retries reached for deposit ${depositId}`);
+      }
+    } else {
+      console.error("❌ Auto-approve error:", err);
+    }
   }
 };
 
