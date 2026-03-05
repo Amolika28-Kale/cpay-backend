@@ -20,6 +20,9 @@ const userSchema = new mongoose.Schema({
     default: "user"
   },
 
+    firstDepositCompleted: { type: Boolean, default: false },
+  firstAcceptCompleted: { type: Boolean, default: false },
+
   referralCode: { type: String, unique: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   

@@ -186,9 +186,11 @@ const Deposit = require("../models/Deposit");
 const mongoose = require("mongoose");
 const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
+const User = require("../models/User"); // ✅ User import करा
 
 const TEST_MODE = true; // production madhe false kara
 const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // Changed from 5 to 2 minutes
+
 // Auto-approve function with retry logic
 const autoApproveDeposit = async (depositId, retryCount = 0) => {
   const maxRetries = 3;
@@ -204,7 +206,6 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     const deposit = await Deposit.findById(depositId).session(session);
     
     if (!deposit || deposit.status !== "pending") {
-      // console.log(`Deposit ${depositId} already processed or not found`);
       await session.abortTransaction();
       session.endSession();
       return;
@@ -231,6 +232,14 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     usdtWallet.balance += deposit.amount;
     await usdtWallet.save({ session });
 
+    // ✅ Check if this is first deposit
+    const user = await User.findById(deposit.user).session(session);
+    if (user && !user.firstDepositCompleted) {
+      user.firstDepositCompleted = true;
+      await user.save({ session });
+      console.log(`✅ First deposit completed for user: ${user.userId}`);
+    }
+
     // Create USDT deposit transaction
     await Transaction.create([{
       user: deposit.user,
@@ -242,7 +251,8 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
         depositId: deposit._id,
         txHash: deposit.txHash,
         currency: "USDT",
-        autoApproved: true
+        autoApproved: true,
+        firstDeposit: !user?.firstDepositCompleted ? true : false
       }
     }], { session });
 
@@ -286,8 +296,6 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
 
     await session.commitTransaction();
     session.endSession();
-    
-    // console.log(`✅ Deposit ${depositId} auto-approved successfully`);
 
   } catch (err) {
     await session.abortTransaction();
@@ -296,7 +304,6 @@ const autoApproveDeposit = async (depositId, retryCount = 0) => {
     // Retry logic for write conflicts
     if (err.code === 112 || err.codeName === 'WriteConflict') {
       if (retryCount < maxRetries) {
-        // console.log(`⚠️ Write conflict for deposit ${depositId}, retrying... (${retryCount + 1}/${maxRetries})`);
         // Exponential backoff
         const delay = Math.pow(2, retryCount) * 100;
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -314,11 +321,10 @@ exports.createDeposit = async (req, res) => {
   try {
     const { amount, txHash, paymentMethodId } = req.body;
 
-// ✅ Screenshot check add करा
+    // ✅ Screenshot check add करा
     if (!amount || !txHash || !paymentMethodId || !req.file) {
       return res.status(400).json({ message: "All fields required including screenshot" });
     }
-
 
     const deposit = await Deposit.create({
       user: req.user.id,
@@ -339,6 +345,7 @@ exports.createDeposit = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 exports.approveDeposit = async (req, res) => {
   const session = await mongoose.startSession();

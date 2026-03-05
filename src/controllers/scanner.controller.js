@@ -9,10 +9,49 @@ const ReferralService = require("../../services/referralService");
 /* =========================================================
    1️⃣ REQUEST TO PAY (User A creates request)
 ========================================================= */
+// exports.requestToPay = async (req, res) => {
+//   try {
+//     const { amount } = req.body;
+//     const userId = req.user.id;
+
+//     if (!amount || amount <= 0)
+//       return res.status(400).json({ message: "Invalid amount" });
+
+//     if (!req.file)
+//       return res.status(400).json({ message: "QR required" });
+
+//     const scanner = await Scanner.create({
+//       user: userId,
+//       amount: Number(amount),
+//       image: `/uploads/${req.file.filename}`,
+//       upiLink: req.body.upiLink,
+//       status: "ACTIVE"
+//     });
+
+//     res.status(201).json({
+//       message: "Request sent to all users",
+//       scanner
+//     });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+
 exports.requestToPay = async (req, res) => {
   try {
     const { amount } = req.body;
     const userId = req.user.id;
+
+    // ✅ Check if user can create pay request
+    const user = await User.findById(userId);
+    
+    // If user has done first deposit but not first accept, block creating requests
+    if (user.firstDepositCompleted && !user.firstAcceptCompleted) {
+      return res.status(403).json({ 
+        message: "You must accept at least one payment request before creating your own" 
+      });
+    }
 
     if (!amount || amount <= 0)
       return res.status(400).json({ message: "Invalid amount" });
@@ -36,7 +75,6 @@ exports.requestToPay = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 
 /* =========================================================
    2️⃣ GET ALL ACTIVE REQUESTS
@@ -132,6 +170,12 @@ exports.acceptRequest = async (req, res) => {
     // Update user's daily totals - amount वाढवा
     user.todayAcceptedTotal = (user.todayAcceptedTotal || 0) + scanner.amount;
     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
+    
+    // ✅ Mark first accept completed
+    if (!user.firstAcceptCompleted) {
+      user.firstAcceptCompleted = true;
+    }
+    
     await user.save();
 
     res.json({ message: "Request accepted successfully" });
