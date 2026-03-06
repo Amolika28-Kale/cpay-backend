@@ -1,41 +1,108 @@
+// const mongoose = require("mongoose");
+
+// const scannerSchema = new mongoose.Schema(
+// {
+//   /* ================= REQUEST CREATOR (User A) ================= */
+//   user: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     required: true
+//   },
+
+//   /* ================= AMOUNT ================= */
+//   amount: {
+//     type: Number,
+//     required: true
+//   },
+
+//   /* ================= QR IMAGE ================= */
+//   image: {
+//     type: String,
+//     required: true
+//   },
+
+//   /* ================= UPI LINK (PhonePe / GPay) ================= */
+//   upiLink: {
+//     type: String,
+//     default: null
+//   },
+
+//   /* ================= PAYMENT SCREENSHOT ================= */
+//   paymentScreenshot: {
+//     type: String,
+//     default: null
+//   },
+
+//   /* ================= STATUS FLOW =================
+//      ACTIVE → ACCEPTED → PAYMENT_SUBMITTED → COMPLETED → EXPIRED
+//   ================================================= */
+//   status: {
+//     type: String,
+//     enum: [
+//       "ACTIVE",
+//       "ACCEPTED",
+//       "PAYMENT_SUBMITTED",
+//       "COMPLETED",
+//       "EXPIRED"
+//     ],
+//     default: "ACTIVE"
+//   },
+
+//   /* ================= ACCEPTED BY (User B) ================= */
+//   acceptedBy: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     default: null
+//   },
+
+//   acceptedAt: Date,
+//   paymentSubmittedAt: Date,
+//   completedAt: Date,
+
+//   /* ================= AUTO EXPIRE 24 HOURS ================= */
+//   expiresAt: {
+//     type: Date,
+//     default: () =>
+//       new Date(Date.now() + 24 * 60 * 60 * 1000)
+//   }
+
+// },
+// { timestamps: true }
+// );
+
+// module.exports = mongoose.model("Scanner", scannerSchema);
+
+
 const mongoose = require("mongoose");
 
 const scannerSchema = new mongoose.Schema(
 {
-  /* ================= REQUEST CREATOR (User A) ================= */
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: true
+    default: null // ✅ null allowed for system requests
   },
 
-  /* ================= AMOUNT ================= */
   amount: {
     type: Number,
     required: true
   },
 
-  /* ================= QR IMAGE ================= */
   image: {
     type: String,
     required: true
   },
 
-  /* ================= UPI LINK (PhonePe / GPay) ================= */
   upiLink: {
     type: String,
     default: null
   },
 
-  /* ================= PAYMENT SCREENSHOT ================= */
   paymentScreenshot: {
     type: String,
     default: null
   },
 
-  /* ================= STATUS FLOW =================
-     ACTIVE → ACCEPTED → PAYMENT_SUBMITTED → COMPLETED → EXPIRED
-  ================================================= */
   status: {
     type: String,
     enum: [
@@ -48,7 +115,6 @@ const scannerSchema = new mongoose.Schema(
     default: "ACTIVE"
   },
 
-  /* ================= ACCEPTED BY (User B) ================= */
   acceptedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -59,15 +125,36 @@ const scannerSchema = new mongoose.Schema(
   paymentSubmittedAt: Date,
   completedAt: Date,
 
-  /* ================= AUTO EXPIRE 24 HOURS ================= */
   expiresAt: {
     type: Date,
-    default: () =>
-      new Date(Date.now() + 24 * 60 * 60 * 1000)
+    default: () => new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+  },
+  
+  // ✅ Auto Request Fields
+  isAutoRequest: {
+    type: Boolean,
+    default: false
+  },
+  
+  autoRequestCycle: {
+    type: Number,
+    default: 0
+  },
+  
+  createdFor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
   }
 
 },
 { timestamps: true }
 );
+
+// Index for better query performance
+scannerSchema.index({ expiresAt: 1, status: 1 });
+scannerSchema.index({ isAutoRequest: 1, status: 1 });
+scannerSchema.index({ user: 1 });
+scannerSchema.index({ createdFor: 1 });
 
 module.exports = mongoose.model("Scanner", scannerSchema);

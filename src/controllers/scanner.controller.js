@@ -1064,10 +1064,11 @@ const Transaction = require("../models/Transaction");
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const ReferralService = require("../../services/referralService");
+const AutoRequestService = require("../../services/autoRequestService"); // ✅ Import Auto Request Service
 
 /* =========================================================
    1️⃣ REQUEST TO PAY (User A creates request)
-========================================================= */// In scanner.controller.js - Update requestToPay function
+========================================================= */
 exports.requestToPay = async (req, res) => {
   try {
     const { amount } = req.body;
@@ -1087,9 +1088,8 @@ exports.requestToPay = async (req, res) => {
     if (!req.file)
       return res.status(400).json({ message: "QR required" });
 
-    // ✅ Calculate expiry time: 10 minutes from now
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 minutes
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
     const scanner = await Scanner.create({
       user: userId,
@@ -1097,7 +1097,8 @@ exports.requestToPay = async (req, res) => {
       image: `/uploads/${req.file.filename}`,
       upiLink: req.body.upiLink,
       status: "ACTIVE",
-      expiresAt: expiresAt // Set 10 minutes expiry
+      expiresAt: expiresAt,
+      isAutoRequest: false // Not auto request
     });
 
     res.status(201).json({
@@ -1108,39 +1109,71 @@ exports.requestToPay = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-// In scanner.controller.js - Update getActiveRequests function
 
+/* =========================================================
+   2️⃣ GET ALL ACTIVE REQUESTS
+========================================================= */
+/* =========================================================
+   2️⃣ GET ALL ACTIVE REQUESTS - UPDATED for System Auto Requests
+========================================================= */
 exports.getActiveRequests = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Only get requests that are NOT expired
+    // ✅ Auto requests (user = null) सगळ्यांना दिसतील "Accept Bill Payments" मध्ये
+    // ✅ Plus user च्या स्वतःच्या requests "My Bill Payments" मध्ये दिसतील
     const requests = await Scanner.find({
       $and: [
-        // ✅ Only show non-expired requests
         { expiresAt: { $gt: new Date() } },
         {
           $or: [
-            { status: "ACTIVE" },
-            { acceptedBy: userId, status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } },
-            { user: userId, status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED", "COMPLETED"] } }
+            // System Auto Requests - user null आहेत - हे "Accept Bill Payments" मध्ये दिसतील
+            { 
+              user: null, 
+              status: "ACTIVE",
+              isAutoRequest: true 
+            },
+            
+            // Regular ACTIVE requests from other users - हे पण "Accept Bill Payments" मध्ये दिसतील
+            { 
+              user: { $ne: null, $ne: userId }, 
+              status: "ACTIVE" 
+            },
+            
+            // User's own requests in progress - हे "My Bill Payments" मध्ये दिसतील
+            { 
+              acceptedBy: userId, 
+              status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } 
+            },
+            
+            // User's own created requests - हे "My Bill Payments" मध्ये दिसतील
+            { 
+              user: userId, 
+              status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED", "COMPLETED"] } 
+            }
           ]
         }
       ]
     })
-      .populate("user", "name")
-      .populate("acceptedBy", "name")
+      .populate("user", "name userId")
+      .populate("acceptedBy", "name userId")
       .sort({ createdAt: -1 });
+
+    // console.log(`📊 Found ${requests.length} active requests for user ${userId}`);
+    // console.log(`   - System requests: ${requests.filter(r => !r.user).length}`);
+    // console.log(`   - Other user requests: ${requests.filter(r => r.user && String(r.user._id) !== userId).length}`);
+    // console.log(`   - Own requests: ${requests.filter(r => r.user && String(r.user._id) === userId).length}`);
 
     res.json(requests);
 
   } catch (err) {
+    console.error("❌ Error in getActiveRequests:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================================================
-   3️⃣ ACCEPT REQUEST (User B Accept) - NO BALANCE DEDUCTION
+   3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
 ========================================================= */
 exports.acceptRequest = async (req, res) => {
   try {
@@ -1148,8 +1181,10 @@ exports.acceptRequest = async (req, res) => {
     const userId = req.user.id;
 
     const user = await User.findById(userId);
+    const scanner = await Scanner.findById(scannerId);
     
     if (!user) return res.status(404).json({ message: "User not found" });
+    if (!scanner) return res.status(404).json({ message: "Scanner not found" });
     
     // Check if wallet is activated
     if (!user.walletActivated) {
@@ -1166,9 +1201,6 @@ exports.acceptRequest = async (req, res) => {
     // Check 7-day limit
     user.checkAndResetSevenDay();
     
-    const scanner = await Scanner.findById(scannerId);
-    if (!scanner) return res.status(404).json({ message: "Scanner not found" });
-    
     // Check if amount exceeds remaining 7-day limit
     if (user.sevenDayTotalAccepted + scanner.amount > user.dailyAcceptLimit) {
       return res.status(400).json({ 
@@ -1183,7 +1215,7 @@ exports.acceptRequest = async (req, res) => {
     scanner.acceptedAt = new Date();
     await scanner.save();
 
-    // ✅ UPDATE USER'S 7-DAY TOTAL - STILL NO BALANCE DEDUCTION
+    // ✅ UPDATE USER'S 7-DAY TOTAL
     user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount;
     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
     
@@ -1193,9 +1225,16 @@ exports.acceptRequest = async (req, res) => {
     
     await user.save();
 
+    // ✅ If it's an AUTO REQUEST, schedule auto-confirm
+    let autoConfirmMessage = null;
+    if (scanner.isAutoRequest) {
+      AutoRequestService.handleAcceptedRequest(scannerId);
+      autoConfirmMessage = "Auto request will be confirmed in 1 minute after proof submission.";
+    }
+
     res.json({ 
       message: "Request accepted successfully",
-      info: "Balance will be deducted after transaction completion"
+      info: autoConfirmMessage || "Balance will be deducted after transaction completion"
     });
 
   } catch (err) {
@@ -1204,7 +1243,7 @@ exports.acceptRequest = async (req, res) => {
 };
 
 /* =========================================================
-   4️⃣ SUBMIT PAYMENT SCREENSHOT (User B)
+   4️⃣ SUBMIT PAYMENT SCREENSHOT (User B) - UPDATED for Auto Request
 ========================================================= */
 exports.submitPayment = async (req, res) => {
   try {
@@ -1228,12 +1267,25 @@ exports.submitPayment = async (req, res) => {
 
     await scanner.save();
 
+    // ✅ If it's an AUTO REQUEST, schedule auto-confirm
+    if (scanner.isAutoRequest) {
+      setTimeout(() => {
+        AutoRequestService.autoConfirmRequest(scannerId);
+      }, 60 * 1000);
+      
+      return res.json({ 
+        message: "Payment proof submitted! Transaction will auto-confirm in 1 minute.",
+        autoConfirmIn: "1 minute"
+      });
+    }
+
     res.json({ message: "Screenshot submitted successfully" });
 
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 /* =========================================================
    5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - BALANCE DEDUCTION HERE

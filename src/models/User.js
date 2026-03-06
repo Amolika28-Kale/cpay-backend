@@ -414,19 +414,30 @@ const userSchema = new mongoose.Schema({
   // ✅ Wallet Activation Fields
   walletActivated: { type: Boolean, default: false },
   activationDate: { type: Date, default: null },
-  activationExpiryDate: { type: Date, default: null }, // 7 days from activation
+  activationExpiryDate: { type: Date, default: null },
   dailyAcceptLimit: { type: Number, default: 1000 },
   
   // ✅ 7-Day Limit Fields
-  sevenDayTotalAccepted: { type: Number, default: 0 }, // Total accepted in last 7 days
-  sevenDayResetDate: { type: Date, default: null }, // When to reset
+  sevenDayTotalAccepted: { type: Number, default: 0 },
+  sevenDayResetDate: { type: Date, default: null },
   activationHistory: [{
     date: { type: Date, default: Date.now },
     limit: Number,
     amount: Number,
     expiryDate: Date,
     status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }
-  }]
+  }],
+  
+  // ✅ Auto Request System Fields (NEW)
+  autoRequest: {
+    enabled: { type: Boolean, default: true },
+    currentRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
+    lastRequestAt: { type: Date, default: null },
+    nextRequestAt: { type: Date, default: null },
+    totalAutoRequests: { type: Number, default: 0 },
+    autoRequestsAccepted: { type: Number, default: 0 },
+    autoRequestAmount: { type: Number, default: 1000 }
+  }
 
 }, { timestamps: true });
 
@@ -486,7 +497,7 @@ userSchema.methods.checkAndResetSevenDay = function() {
 
 // Method to check if a leg is unlocked
 userSchema.methods.isLegUnlocked = function(level) {
-  if (level <= 3) return true; // Leg 1 always unlocked
+  if (level <= 3) return true;
   
   const legMap = {
     4: 'leg2', 5: 'leg2', 6: 'leg2',

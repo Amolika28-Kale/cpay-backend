@@ -1,4 +1,4 @@
-// models/Transaction.js
+// models/Transaction.js - UPDATE THIS FILE
 const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema(
@@ -26,21 +26,21 @@ const transactionSchema = new mongoose.Schema(
       "CONVERSION",
       "USDT_CREDIT",
       "INR_CREDIT",
-      "TEAM_CASHBACK", // ✅ हे असायला हवे
-      "WALLET_ACTIVATION" // ✅ हे असायला हवे
+      "TEAM_CASHBACK",
+      "WALLET_ACTIVATION"
     ],
     required: true,
   },
 
   fromWallet: {
     type: String,
-    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", null], // "SECURITY_HOLD" जोडा
+    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", "SYSTEM", null], // ✅ "SYSTEM" added
     default: null
   },
 
   toWallet: {
     type: String,
-    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", null], // "SECURITY_HOLD" जोडा
+    enum: ["INR", "CASHBACK", "USDT", "SECURITY_HOLD", "SYSTEM", null], // ✅ "SYSTEM" added
     default: null
   },
 
