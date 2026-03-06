@@ -130,23 +130,21 @@ const scannerSchema = new mongoose.Schema(
     default: () => new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
   },
   
-  // ✅ Auto Request Fields
   isAutoRequest: {
-    type: Boolean,
-    default: false
-  },
-  
-  autoRequestCycle: {
-    type: Number,
-    default: 0
-  },
-  
-  createdFor: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    default: null
-  }
+  type: Boolean,
+  default: false
+},
 
+autoRequestCycle: {
+  type: Number,
+  default: 0 // 1 for first, 2 for second
+},
+
+createdFor: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null
+}
 },
 { timestamps: true }
 );

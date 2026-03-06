@@ -428,16 +428,36 @@ const userSchema = new mongoose.Schema({
     status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }
   }],
   
-  // ✅ Auto Request System Fields (NEW)
-  autoRequest: {
-    enabled: { type: Boolean, default: true },
-    currentRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
-    lastRequestAt: { type: Date, default: null },
-    nextRequestAt: { type: Date, default: null },
-    totalAutoRequests: { type: Number, default: 0 },
-    autoRequestsAccepted: { type: Number, default: 0 },
-    autoRequestAmount: { type: Number, default: 1000 }
-  }
+// models/User.js - Add this to existing schema
+
+autoRequest: {
+  // First request tracking
+  firstRequestCreated: { type: Boolean, default: false },
+  firstRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
+  firstRequestAmount: { type: Number, default: 0 },
+  firstRequestCreatedAt: { type: Date, default: null },
+  firstRequestExpiresAt: { type: Date, default: null },
+  firstRequestCompleted: { type: Boolean, default: false },
+  firstRequestCompletedAt: { type: Date, default: null },
+  
+  // Second request tracking (30 minutes later)
+  secondRequestCreated: { type: Boolean, default: false },
+  secondRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
+  secondRequestAmount: { type: Number, default: 0 },
+  secondRequestCreatedAt: { type: Date, default: null },
+  secondRequestExpiresAt: { type: Date, default: null },
+  secondRequestCompleted: { type: Boolean, default: false },
+  secondRequestCompletedAt: { type: Date, default: null },
+  
+  // Schedule tracking
+  nextRequestScheduledAt: { type: Date, default: null },
+  autoRequestCompleted: { type: Boolean, default: false },
+  
+  // Stats
+  totalAutoRequests: { type: Number, default: 0 },
+  autoRequestsAccepted: { type: Number, default: 0 },
+  currentRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null }
+}
 
 }, { timestamps: true });
 

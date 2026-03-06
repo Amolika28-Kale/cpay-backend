@@ -1116,37 +1116,45 @@ exports.requestToPay = async (req, res) => {
 /* =========================================================
    2️⃣ GET ALL ACTIVE REQUESTS - UPDATED for System Auto Requests
 ========================================================= */
+/* =========================================================
+   2️⃣ GET ALL ACTIVE REQUESTS - UPDATED to show correct remaining
+========================================================= */
 exports.getActiveRequests = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // ✅ Auto requests (user = null) सगळ्यांना दिसतील "Accept Bill Payments" मध्ये
-    // ✅ Plus user च्या स्वतःच्या requests "My Bill Payments" मध्ये दिसतील
+    // Get user for 7-day limit check
+    const user = await User.findById(userId);
+    
+    // Check 7-day reset
+    user.checkAndResetSevenDay();
+
+    // ✅ Auto requests (user = null) सगळ्यांना दिसतील
     const requests = await Scanner.find({
       $and: [
         { expiresAt: { $gt: new Date() } },
         {
           $or: [
-            // System Auto Requests - user null आहेत - हे "Accept Bill Payments" मध्ये दिसतील
+            // System Auto Requests
             { 
               user: null, 
               status: "ACTIVE",
               isAutoRequest: true 
             },
             
-            // Regular ACTIVE requests from other users - हे पण "Accept Bill Payments" मध्ये दिसतील
+            // Regular ACTIVE requests from other users
             { 
               user: { $ne: null, $ne: userId }, 
               status: "ACTIVE" 
             },
             
-            // User's own requests in progress - हे "My Bill Payments" मध्ये दिसतील
+            // User's own requests in progress
             { 
               acceptedBy: userId, 
               status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } 
             },
             
-            // User's own created requests - हे "My Bill Payments" मध्ये दिसतील
+            // User's own created requests
             { 
               user: userId, 
               status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED", "COMPLETED"] } 
@@ -1159,12 +1167,17 @@ exports.getActiveRequests = async (req, res) => {
       .populate("acceptedBy", "name userId")
       .sort({ createdAt: -1 });
 
-    // console.log(`📊 Found ${requests.length} active requests for user ${userId}`);
-    // console.log(`   - System requests: ${requests.filter(r => !r.user).length}`);
-    // console.log(`   - Other user requests: ${requests.filter(r => r.user && String(r.user._id) !== userId).length}`);
-    // console.log(`   - Own requests: ${requests.filter(r => r.user && String(r.user._id) === userId).length}`);
-
-    res.json(requests);
+    // ✅ Add remaining limit info to response headers or separate field
+    // This can be used by frontend to display correctly
+    res.json({
+      requests,
+      limitInfo: {
+        dailyLimit: user.dailyAcceptLimit,
+        sevenDayTotalAccepted: user.sevenDayTotalAccepted,
+        remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted,
+        remainingDays: user.getRemainingDays()
+      }
+    });
 
   } catch (err) {
     console.error("❌ Error in getActiveRequests:", err);
@@ -1172,6 +1185,9 @@ exports.getActiveRequests = async (req, res) => {
   }
 };
 
+/* =========================================================
+   3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
+========================================================= */
 /* =========================================================
    3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
 ========================================================= */
@@ -1201,7 +1217,8 @@ exports.acceptRequest = async (req, res) => {
     // Check 7-day limit
     user.checkAndResetSevenDay();
     
-    // Check if amount exceeds remaining 7-day limit
+    // ✅ FIX: Check if amount exceeds remaining 7-day limit
+    // BUT DO NOT DEDUCT YET - only check
     if (user.sevenDayTotalAccepted + scanner.amount > user.dailyAcceptLimit) {
       return res.status(400).json({ 
         message: "7-day amount limit exceeded",
@@ -1209,14 +1226,15 @@ exports.acceptRequest = async (req, res) => {
       });
     }
 
-    // ✅ UPDATE SCANNER ONLY - NO BALANCE DEDUCTION
+    // ✅ UPDATE SCANNER ONLY - NO 7-DAY DEDUCTION
     scanner.status = "ACCEPTED";
     scanner.acceptedBy = userId;
     scanner.acceptedAt = new Date();
     await scanner.save();
 
-    // ✅ UPDATE USER'S 7-DAY TOTAL
-    user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount;
+    // ✅ DO NOT UPDATE 7-DAY TOTAL HERE - REMOVED THIS LINE
+    // user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount; ❌ REMOVED
+    
     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
     
     if (!user.firstAcceptCompleted) {
@@ -1290,6 +1308,9 @@ exports.submitPayment = async (req, res) => {
 /* =========================================================
    5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - BALANCE DEDUCTION HERE
 ========================================================= */
+/* =========================================================
+   5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - 7-DAY DEDUCTION HERE
+========================================================= */
 exports.confirmFinalPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -1306,7 +1327,7 @@ exports.confirmFinalPayment = async (req, res) => {
     const acceptorId = scanner.acceptedBy; // This is User B (Acceptor)
     const amount = scanner.amount;
 
-    // ✅ STEP 1: Debit from Creator (User A) - BALANCE DEDUCTION HAPPENS HERE
+    // ✅ STEP 1: Debit from Creator (User A) - BALANCE DEDUCTION
     const creatorWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
     if (!creatorWallet || creatorWallet.balance < amount) {
       throw new Error("Creator's INR balance is too low");
@@ -1321,6 +1342,13 @@ exports.confirmFinalPayment = async (req, res) => {
     }
     acceptorWallet.balance += amount;
     await acceptorWallet.save({ session });
+
+    // ✅ STEP 3: UPDATE 7-DAY TOTAL FOR ACCEPTOR (User B) - येथे DEDUCT करा
+    const acceptorUser = await User.findById(acceptorId).session(session);
+    if (acceptorUser) {
+      acceptorUser.sevenDayTotalAccepted = (acceptorUser.sevenDayTotalAccepted || 0) + amount;
+      await acceptorUser.save({ session });
+    }
 
     /* ================ CASHBACK DISTRIBUTION ================ */
     // 🔥 Cashback for Creator (User A) - 4%
@@ -1401,11 +1429,22 @@ exports.activateWallet = async (req, res) => {
     session.startTransaction();
 
     const userId = req.user.id;
-    const { dailyLimit, activationAmount } = req.body;
+    const { dailyLimit, activationAmount, isIncrease } = req.body;
 
     const user = await User.findById(userId).session(session);
     if (!user) {
       throw new Error("User not found");
+    }
+
+    // ✅ MINIMUM ACTIVATION AMOUNT CHECK - $50 USDT for first time
+    const MIN_ACTIVATION_USDT = 50;
+    
+    if (!user.walletActivated && activationAmount < MIN_ACTIVATION_USDT) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ 
+        message: `Minimum activation amount is $${MIN_ACTIVATION_USDT} USDT` 
+      });
     }
 
     // Calculate expiry date (7 days from now)

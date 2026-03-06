@@ -722,6 +722,7 @@ const bcryptjs = require("bcryptjs");
 const AutoRequestService = require("../../services/autoRequestService"); // ✅ Import Auto Request Service
 
 // controllers/userAuth.controller.js - Register function
+
 exports.register = async (req, res) => {
   try {
     let { userId, pin, referralCode } = req.body;
@@ -756,16 +757,17 @@ exports.register = async (req, res) => {
       }
     }
 
-    // ✅ Create user with auto request enabled
+    // ✅ Create user with auto request tracking
     const user = new User({
       userId,
       pin,
       referredBy: referredUser ? referredUser._id : null,
       autoRequest: {
-        enabled: true,
-        autoRequestAmount: 1000,
-        totalAutoRequests: 0,
-        autoRequestsAccepted: 0
+        firstRequestCreated: false,
+        secondRequestCreated: false,
+        autoRequestCompleted: false,
+        firstRequestAmount: 1000,
+        secondRequestAmount: 1000
       }
     });
 
@@ -782,11 +784,12 @@ exports.register = async (req, res) => {
       await User.addToReferralTree(user._id, referredUser._id, 1);
     }
 
-    // ✅ Create AUTO REQUEST for new user (₹1000)
+    // ✅ Create FIRST AUTO REQUEST for new user (only once)
+    const AutoRequestService = require("../services/autoRequestService");
     let autoRequest = null;
     try {
-      autoRequest = await AutoRequestService.createAutoRequestForUser(user._id, 1000);
-      console.log(`✅ Auto request created for new user: ${user.userId}`);
+      autoRequest = await AutoRequestService.createFirstAutoRequestForUser(user._id, 1000);
+      console.log(`✅ First auto request created for new user: ${user.userId}`);
     } catch (autoRequestError) {
       console.error("❌ Failed to create auto request for new user:", autoRequestError);
     }
@@ -801,11 +804,7 @@ exports.register = async (req, res) => {
       _id: user._id,
       userId: user.userId,
       referralCode: user.referralCode,
-      role: user.role,
-      autoRequest: {
-        enabled: user.autoRequest.enabled,
-        amount: user.autoRequest.autoRequestAmount
-      }
+      role: user.role
     };
 
     res.status(201).json({ 
@@ -814,7 +813,8 @@ exports.register = async (req, res) => {
       autoRequest: autoRequest ? {
         id: autoRequest._id,
         amount: autoRequest.amount,
-        expiresAt: autoRequest.expiresAt
+        expiresAt: autoRequest.expiresAt,
+        type: "FIRST_WELCOME_BONUS"
       } : null
     });
 
