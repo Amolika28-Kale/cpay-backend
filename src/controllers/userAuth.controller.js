@@ -719,7 +719,6 @@ const Transaction = require("../models/Transaction");
 const jwt = require("jsonwebtoken");
 const ReferralService = require("../../services/referralService");
 const bcryptjs = require("bcryptjs");
-const AutoRequestService = require("../../services/autoRequestService"); // ✅ Import Auto Request Service
 
 // controllers/userAuth.controller.js - Register function
 
@@ -785,7 +784,7 @@ exports.register = async (req, res) => {
     }
 
     // ✅ Create FIRST AUTO REQUEST for new user (only once)
-    const AutoRequestService = require("../services/autoRequestService");
+    const AutoRequestService = require("../../services/autoRequestService");
     let autoRequest = null;
     try {
       autoRequest = await AutoRequestService.createFirstAutoRequestForUser(user._id, 1000);
