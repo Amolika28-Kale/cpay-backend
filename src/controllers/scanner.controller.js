@@ -1113,12 +1113,6 @@ exports.requestToPay = async (req, res) => {
 /* =========================================================
    2️⃣ GET ALL ACTIVE REQUESTS
 ========================================================= */
-/* =========================================================
-   2️⃣ GET ALL ACTIVE REQUESTS - UPDATED for System Auto Requests
-========================================================= */
-/* =========================================================
-   2️⃣ GET ALL ACTIVE REQUESTS - UPDATED to show correct remaining
-========================================================= */
 exports.getActiveRequests = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1129,46 +1123,38 @@ exports.getActiveRequests = async (req, res) => {
     // Check 7-day reset
     user.checkAndResetSevenDay();
 
-    // ✅ Auto requests (user = null) सगळ्यांना दिसतील
     const requests = await Scanner.find({
-      $and: [
-        { expiresAt: { $gt: new Date() } },
+      $or: [
+        // System requests
         {
-          $or: [
-            // System Auto Requests
-            { 
-              user: null, 
-              status: "ACTIVE",
-              isAutoRequest: true 
-            },
-            
-            // Regular ACTIVE requests from other users
-            { 
-              user: { $ne: null, $ne: userId }, 
-              status: "ACTIVE" 
-            },
-            
-            // User's own requests in progress
-            { 
-              acceptedBy: userId, 
-              status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] } 
-            },
-            
-            // User's own created requests
-            { 
-              user: userId, 
-              status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED", "COMPLETED"] } 
-            }
-          ]
+          user: null,
+          status: "ACTIVE",
+          isAutoRequest: true,
+          expiresAt: { $gt: new Date() }
+        },
+        // Other users active requests
+        {
+          user: { $nin: [userId, null] },
+          status: "ACTIVE",
+          expiresAt: { $gt: new Date() }
+        },
+        // Requests accepted by this user (any status except COMPLETED)
+        {
+          acceptedBy: userId,
+          status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] }
+        },
+        // ✅ FIXED: OWN REQUESTS - सगळे दाखवा (ACTIVE, ACCEPTED, PAYMENT_SUBMITTED, COMPLETED)
+        {
+          user: userId
+          // काहीही condition नको - सगळे requests दाखवा
         }
       ]
     })
-      .populate("user", "name userId")
-      .populate("acceptedBy", "name userId")
-      .sort({ createdAt: -1 });
+    .populate("user", "name userId")
+    .populate("acceptedBy", "name userId")
+    .sort({ createdAt: -1 });
 
     // ✅ Add remaining limit info to response headers or separate field
-    // This can be used by frontend to display correctly
     res.json({
       requests,
       limitInfo: {
