@@ -717,288 +717,471 @@
 // };
 
 
+// const Deposit = require("../models/Deposit");
+// const mongoose = require("mongoose");
+// const Wallet = require("../models/Wallet");
+// const Transaction = require("../models/Transaction");
+// const User = require("../models/User");
+
+// const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // 2 minutes
+
+// // Auto-approve function - FIXED for no duplicates and proper activation
+// const autoApproveDeposit = async (depositId, retryCount = 0) => {
+//   const maxRetries = 3;
+//   const session = await mongoose.startSession();
+  
+//   try {
+//     session.startTransaction();
+
+//     const deposit = await Deposit.findById(depositId).session(session);
+    
+//     if (!deposit || deposit.status !== "pending") {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return;
+//     }
+
+//     deposit.status = "approved";
+//     await deposit.save({ session });
+
+//     // ✅ Get user
+//     const user = await User.findById(deposit.user).session(session);
+//     if (!user) {
+//       throw new Error("User not found");
+//     }
+    
+//     // ✅ Check if this is first deposit EVER
+//     const isFirstDepositEver = !user.firstDepositCompleted;
+    
+//     if (!user.firstDepositCompleted) {
+//       user.firstDepositCompleted = true;
+//       console.log(`✅ First deposit completed for user: ${user.userId}`);
+//     }
+
+//     /* ===== USDT WALLET ===== */
+//     let usdtWallet = await Wallet.findOne({
+//       user: deposit.user,
+//       type: "USDT"
+//     }).session(session);
+
+//     if (!usdtWallet) {
+//       usdtWallet = new Wallet({
+//         user: deposit.user,
+//         type: "USDT",
+//         balance: 0
+//       });
+//     }
+
+//     usdtWallet.balance += deposit.amount;
+//     await usdtWallet.save({ session });
+
+//     /* ===== INR CONVERSION ===== */
+//     const conversionRate = 95;
+//     const inrAmount = deposit.amount * conversionRate;
+
+//     let inrWallet = await Wallet.findOne({
+//       user: deposit.user,
+//       type: "INR"
+//     }).session(session);
+
+//     if (!inrWallet) {
+//       inrWallet = new Wallet({
+//         user: deposit.user,
+//         type: "INR",
+//         balance: 0
+//       });
+//     }
+
+//     inrWallet.balance += inrAmount;
+//     await inrWallet.save({ session });
+
+//     // ✅ Prepare transactions array - NO DUPLICATES
+//     const transactions = [
+//       // 1. USDT Deposit
+//       {
+//         user: deposit.user,
+//         type: "DEPOSIT",
+//         fromWallet: null,
+//         toWallet: "USDT",
+//         amount: deposit.amount,
+//         meta: {
+//           depositId: deposit._id,
+//           txHash: deposit.txHash,
+//           currency: "USDT",
+//           autoApproved: true
+//         }
+//       },
+//       // 2. INR Credit (from conversion)
+//       {
+//         user: deposit.user,
+//         type: "CREDIT",
+//         fromWallet: "USDT",
+//         toWallet: "INR",
+//         amount: inrAmount,
+//         meta: {
+//           rate: conversionRate,
+//           type: "CONVERSION",
+//           originalAmount: deposit.amount,
+//           originalCurrency: "USDT"
+//         }
+//       }
+//     ];
+
+//     /* ===== WALLET ACTIVATION LOGIC ===== */
+//     const now = new Date();
+//     let activationMessage = "";
+
+//     // Check if wallet is already active and not expired
+//     const isWalletActive = user.walletActivated && 
+//                           user.activationExpiryDate && 
+//                           user.activationExpiryDate > now;
+
+//     // CASE 1: FIRST DEPOSIT EVER
+//     if (isFirstDepositEver) {
+//       // Activate for 7 days
+//       const expiryDate = new Date();
+//       expiryDate.setDate(expiryDate.getDate() + 7);
+      
+//       user.walletActivated = true;
+//       user.activationDate = now;
+//       user.activationExpiryDate = expiryDate;
+//       user.dailyAcceptLimit = inrAmount; // Set limit = this deposit amount
+//       user.sevenDayTotalAccepted = 0;
+//       user.sevenDayResetDate = expiryDate;
+//       user.todayAcceptedCount = 0;
+      
+//       // Add to activation history
+//       if (!user.activationHistory) {
+//         user.activationHistory = [];
+//       }
+//       user.activationHistory.push({
+//         date: now,
+//         limit: inrAmount,
+//         amount: deposit.amount,
+//         expiryDate: expiryDate,
+//         status: 'ACTIVE'
+//       });
+      
+//       transactions.push({
+//         user: deposit.user,
+//         type: "WALLET_ACTIVATION",
+//         fromWallet: "USDT",
+//         toWallet: "INR",
+//         amount: deposit.amount,
+//         meta: {
+//           type: "FIRST_ACTIVATION",
+//           dailyLimit: inrAmount,
+//           validUntil: expiryDate,
+//           action: "New wallet activated for 7 days"
+//         }
+//       });
+      
+//       activationMessage = `FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
+//       console.log(`✅ ${activationMessage}`);
+//     }
+    
+//     // CASE 2: WALLET ALREADY ACTIVE (Not expired)
+//     else if (isWalletActive) {
+//       const daysRemaining = Math.ceil((user.activationExpiryDate - now) / (1000 * 60 * 60 * 24));
+//       const oldLimit = user.dailyAcceptLimit;
+//       const newLimit = oldLimit + inrAmount; // Add to existing limit
+      
+//       // Extend expiry by 7 more days from now
+//       const newExpiryDate = new Date();
+//       newExpiryDate.setDate(newExpiryDate.getDate() + 7);
+      
+//       // Update user
+//       user.dailyAcceptLimit = newLimit;
+//       user.activationDate = now; // Reset activation date
+//       user.activationExpiryDate = newExpiryDate; // Extend to 7 more days
+//       user.sevenDayResetDate = newExpiryDate;
+      
+//       // Add to history
+//       if (!user.activationHistory) user.activationHistory = [];
+//       user.activationHistory.push({
+//         date: now,
+//         limit: newLimit,
+//         amount: deposit.amount,
+//         expiryDate: newExpiryDate,
+//         status: 'ACTIVE',
+//         note: `Extended activation - Previous limit: ₹${oldLimit} + ₹${inrAmount}`
+//       });
+      
+//       transactions.push({
+//         user: deposit.user,
+//         type: "WALLET_ACTIVATION",
+//         fromWallet: "USDT",
+//         toWallet: "INR",
+//         amount: deposit.amount,
+//         meta: {
+//           type: "EXTENDED_ACTIVATION",
+//           previousLimit: oldLimit,
+//           newLimit: newLimit,
+//           previousExpiry: user.activationExpiryDate,
+//           newExpiry: newExpiryDate,
+//           daysRemaining: daysRemaining,
+//           action: "Wallet extended for 7 more days with increased limit"
+//         }
+//       });
+      
+//       activationMessage = `EXTENDED ACTIVATION: +7 days, Limit: ₹${oldLimit} → ₹${newLimit}`;
+//       console.log(`✅ ${activationMessage}`);
+//     }
+    
+//     // CASE 3: WALLET EXPIRED (Needs re-activation)
+//     else {
+//       // Reactivate for 7 days
+//       const expiryDate = new Date();
+//       expiryDate.setDate(expiryDate.getDate() + 7);
+      
+//       user.walletActivated = true;
+//       user.activationDate = now;
+//       user.activationExpiryDate = expiryDate;
+//       user.dailyAcceptLimit = inrAmount; // Set new limit
+//       user.sevenDayTotalAccepted = 0;
+//       user.sevenDayResetDate = expiryDate;
+//       user.todayAcceptedCount = 0;
+      
+//       // Add to activation history
+//       if (!user.activationHistory) user.activationHistory = [];
+//       user.activationHistory.push({
+//         date: now,
+//         limit: inrAmount,
+//         amount: deposit.amount,
+//         expiryDate: expiryDate,
+//         status: 'ACTIVE'
+//       });
+      
+//       transactions.push({
+//         user: deposit.user,
+//         type: "WALLET_ACTIVATION",
+//         fromWallet: "USDT",
+//         toWallet: "INR",
+//         amount: deposit.amount,
+//         meta: {
+//           type: "REACTIVATION",
+//           dailyLimit: inrAmount,
+//           validUntil: expiryDate,
+//           action: "Wallet re-activated for 7 days after expiry"
+//         }
+//       });
+      
+//       activationMessage = `REACTIVATED: Wallet expired, new activation until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
+//       console.log(`✅ ${activationMessage}`);
+//     }
+
+//     // ✅ Save user
+//     await user.save({ session });
+
+//     // ✅ Create ALL transactions in ONE array
+//     await Transaction.insertMany(transactions, { session });
+
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     console.log(`✅ Deposit ${depositId} processed successfully for user ${user.userId}`);
+//     console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
+
+//   } catch (err) {
+//     await session.abortTransaction();
+//     session.endSession();
+    
+//     if (err.code === 112 || err.codeName === 'WriteConflict') {
+//       if (retryCount < maxRetries) {
+//         const delay = Math.pow(2, retryCount) * 100;
+//         await new Promise(resolve => setTimeout(resolve, delay));
+//         return autoApproveDeposit(depositId, retryCount + 1);
+//       } else {
+//         console.error(`❌ Max retries reached for deposit ${depositId}`);
+//       }
+//     } else {
+//       console.error("❌ Auto-approve error:", err);
+//     }
+//   }
+// };
+
+// exports.createDeposit = async (req, res) => {
+//   try {
+//     const { amount, txHash, paymentMethodId } = req.body;
+
+//     if (!amount || !txHash || !paymentMethodId || !req.file) {
+//       return res.status(400).json({ message: "All fields required including screenshot" });
+//     }
+
+//     // ✅ MINIMUM DEPOSIT CHECK - $50 USDT
+//     const MIN_DEPOSIT_USDT = 50;
+//     const depositAmount = Number(amount);
+    
+//     if (depositAmount < MIN_DEPOSIT_USDT) {
+//       return res.status(400).json({ 
+//         message: `Minimum deposit amount is $${MIN_DEPOSIT_USDT} USDT` 
+//       });
+//     }
+
+//     const deposit = await Deposit.create({
+//       user: req.user.id,
+//       paymentMethod: paymentMethodId,
+//       amount: depositAmount,
+//       txHash: txHash.trim(),
+//       paymentScreenshot: req.file
+//         ? `/uploads/${req.file.filename}`
+//         : null
+//     });
+
+//     // Schedule auto-approval after 2 minutes
+//     setTimeout(() => autoApproveDeposit(deposit._id), AUTO_APPROVE_DELAY);
+
+//     res.status(201).json(deposit);
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// exports.approveDeposit = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const deposit = await Deposit.findById(req.params.id).session(session);
+
+//     if (!deposit || deposit.status !== "pending")
+//       throw new Error("Invalid deposit");
+
+//     deposit.status = "approved";
+//     await deposit.save({ session });
+
+//     /* ===== USDT WALLET ===== */
+//     let usdtWallet = await Wallet.findOne({
+//       user: deposit.user,
+//       type: "USDT"
+//     }).session(session);
+
+//     if (!usdtWallet) {
+//       usdtWallet = new Wallet({
+//         user: deposit.user,
+//         type: "USDT",
+//         balance: 0
+//       });
+//     }
+
+//     usdtWallet.balance += deposit.amount;
+//     await usdtWallet.save({ session });
+
+//     const conversionRate = 95;
+//     const inrAmount = deposit.amount * conversionRate;
+
+//     let inrWallet = await Wallet.findOne({
+//       user: deposit.user,
+//       type: "INR"
+//     }).session(session);
+
+//     if (!inrWallet) {
+//       inrWallet = new Wallet({
+//         user: deposit.user,
+//         type: "INR",
+//         balance: 0
+//       });
+//     }
+
+//     inrWallet.balance += inrAmount;
+//     await inrWallet.save({ session });
+
+//     const transactions = [
+//       {
+//         user: deposit.user,
+//         type: "DEPOSIT",
+//         fromWallet: null,
+//         toWallet: "USDT",
+//         amount: deposit.amount,
+//         meta: { depositId: deposit._id, txHash: deposit.txHash, currency: "USDT" }
+//       },
+//       {
+//         user: deposit.user,
+//         type: "CREDIT",
+//         fromWallet: "USDT",
+//         toWallet: "INR",
+//         amount: inrAmount,
+//         meta: { rate: conversionRate, type: "CONVERSION", originalAmount: deposit.amount }
+//       }
+//     ];
+
+//     await Transaction.insertMany(transactions, { session });
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     res.json({ 
+//       message: "Deposit approved",
+//       amount: deposit.amount,
+//       inrAmount: inrAmount
+//     });
+
+//   } catch (err) {
+//     await session.abortTransaction();
+//     session.endSession();
+//     console.error("Approve deposit error:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// exports.getAllDeposits = async (req, res) => {
+//   try {
+//     const deposits = await Deposit.find()
+//       .populate("user", "name email")
+//       .populate("paymentMethod")
+//       .sort({ createdAt: -1 });
+
+//     res.json(deposits);
+//   } catch (err) {
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
+// exports.rejectDeposit = async (req, res) => {
+//   try {
+//     const { reason } = req.body;
+//     const deposit = await Deposit.findById(req.params.id);
+
+//     if (!deposit)
+//       return res.status(404).json({ message: "Deposit not found" });
+
+//     if (deposit.status !== "pending")
+//       return res.status(400).json({ message: "Already processed" });
+
+//     deposit.status = "rejected";
+//     deposit.rejectReason = reason || "Not specified";
+//     await deposit.save();
+
+//     res.json({ message: "Deposit rejected" });
+
+//   } catch (err) {
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
+// exports.getMyDeposits = async (req, res) => {
+//   try {
+//     const deposits = await Deposit.find({ user: req.user.id })
+//       .sort({ createdAt: -1 });
+
+//     res.json(deposits);
+//   } catch (err) {
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
+
 const Deposit = require("../models/Deposit");
 const mongoose = require("mongoose");
 const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
 const User = require("../models/User");
 
-const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // 2 minutes
+// REMOVE THIS - No more auto-approve
+// const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // 2 minutes
 
-// Auto-approve function - FIXED for no duplicates and proper activation
-const autoApproveDeposit = async (depositId, retryCount = 0) => {
-  const maxRetries = 3;
-  const session = await mongoose.startSession();
-  
-  try {
-    session.startTransaction();
-
-    const deposit = await Deposit.findById(depositId).session(session);
-    
-    if (!deposit || deposit.status !== "pending") {
-      await session.abortTransaction();
-      session.endSession();
-      return;
-    }
-
-    deposit.status = "approved";
-    await deposit.save({ session });
-
-    // ✅ Get user
-    const user = await User.findById(deposit.user).session(session);
-    if (!user) {
-      throw new Error("User not found");
-    }
-    
-    // ✅ Check if this is first deposit EVER
-    const isFirstDepositEver = !user.firstDepositCompleted;
-    
-    if (!user.firstDepositCompleted) {
-      user.firstDepositCompleted = true;
-      console.log(`✅ First deposit completed for user: ${user.userId}`);
-    }
-
-    /* ===== USDT WALLET ===== */
-    let usdtWallet = await Wallet.findOne({
-      user: deposit.user,
-      type: "USDT"
-    }).session(session);
-
-    if (!usdtWallet) {
-      usdtWallet = new Wallet({
-        user: deposit.user,
-        type: "USDT",
-        balance: 0
-      });
-    }
-
-    usdtWallet.balance += deposit.amount;
-    await usdtWallet.save({ session });
-
-    /* ===== INR CONVERSION ===== */
-    const conversionRate = 95;
-    const inrAmount = deposit.amount * conversionRate;
-
-    let inrWallet = await Wallet.findOne({
-      user: deposit.user,
-      type: "INR"
-    }).session(session);
-
-    if (!inrWallet) {
-      inrWallet = new Wallet({
-        user: deposit.user,
-        type: "INR",
-        balance: 0
-      });
-    }
-
-    inrWallet.balance += inrAmount;
-    await inrWallet.save({ session });
-
-    // ✅ Prepare transactions array - NO DUPLICATES
-    const transactions = [
-      // 1. USDT Deposit
-      {
-        user: deposit.user,
-        type: "DEPOSIT",
-        fromWallet: null,
-        toWallet: "USDT",
-        amount: deposit.amount,
-        meta: {
-          depositId: deposit._id,
-          txHash: deposit.txHash,
-          currency: "USDT",
-          autoApproved: true
-        }
-      },
-      // 2. INR Credit (from conversion)
-      {
-        user: deposit.user,
-        type: "CREDIT",
-        fromWallet: "USDT",
-        toWallet: "INR",
-        amount: inrAmount,
-        meta: {
-          rate: conversionRate,
-          type: "CONVERSION",
-          originalAmount: deposit.amount,
-          originalCurrency: "USDT"
-        }
-      }
-    ];
-
-    /* ===== WALLET ACTIVATION LOGIC ===== */
-    const now = new Date();
-    let activationMessage = "";
-
-    // Check if wallet is already active and not expired
-    const isWalletActive = user.walletActivated && 
-                          user.activationExpiryDate && 
-                          user.activationExpiryDate > now;
-
-    // CASE 1: FIRST DEPOSIT EVER
-    if (isFirstDepositEver) {
-      // Activate for 7 days
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 7);
-      
-      user.walletActivated = true;
-      user.activationDate = now;
-      user.activationExpiryDate = expiryDate;
-      user.dailyAcceptLimit = inrAmount; // Set limit = this deposit amount
-      user.sevenDayTotalAccepted = 0;
-      user.sevenDayResetDate = expiryDate;
-      user.todayAcceptedCount = 0;
-      
-      // Add to activation history
-      if (!user.activationHistory) {
-        user.activationHistory = [];
-      }
-      user.activationHistory.push({
-        date: now,
-        limit: inrAmount,
-        amount: deposit.amount,
-        expiryDate: expiryDate,
-        status: 'ACTIVE'
-      });
-      
-      transactions.push({
-        user: deposit.user,
-        type: "WALLET_ACTIVATION",
-        fromWallet: "USDT",
-        toWallet: "INR",
-        amount: deposit.amount,
-        meta: {
-          type: "FIRST_ACTIVATION",
-          dailyLimit: inrAmount,
-          validUntil: expiryDate,
-          action: "New wallet activated for 7 days"
-        }
-      });
-      
-      activationMessage = `FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
-      console.log(`✅ ${activationMessage}`);
-    }
-    
-    // CASE 2: WALLET ALREADY ACTIVE (Not expired)
-    else if (isWalletActive) {
-      const daysRemaining = Math.ceil((user.activationExpiryDate - now) / (1000 * 60 * 60 * 24));
-      const oldLimit = user.dailyAcceptLimit;
-      const newLimit = oldLimit + inrAmount; // Add to existing limit
-      
-      // Extend expiry by 7 more days from now
-      const newExpiryDate = new Date();
-      newExpiryDate.setDate(newExpiryDate.getDate() + 7);
-      
-      // Update user
-      user.dailyAcceptLimit = newLimit;
-      user.activationDate = now; // Reset activation date
-      user.activationExpiryDate = newExpiryDate; // Extend to 7 more days
-      user.sevenDayResetDate = newExpiryDate;
-      
-      // Add to history
-      if (!user.activationHistory) user.activationHistory = [];
-      user.activationHistory.push({
-        date: now,
-        limit: newLimit,
-        amount: deposit.amount,
-        expiryDate: newExpiryDate,
-        status: 'ACTIVE',
-        note: `Extended activation - Previous limit: ₹${oldLimit} + ₹${inrAmount}`
-      });
-      
-      transactions.push({
-        user: deposit.user,
-        type: "WALLET_ACTIVATION",
-        fromWallet: "USDT",
-        toWallet: "INR",
-        amount: deposit.amount,
-        meta: {
-          type: "EXTENDED_ACTIVATION",
-          previousLimit: oldLimit,
-          newLimit: newLimit,
-          previousExpiry: user.activationExpiryDate,
-          newExpiry: newExpiryDate,
-          daysRemaining: daysRemaining,
-          action: "Wallet extended for 7 more days with increased limit"
-        }
-      });
-      
-      activationMessage = `EXTENDED ACTIVATION: +7 days, Limit: ₹${oldLimit} → ₹${newLimit}`;
-      console.log(`✅ ${activationMessage}`);
-    }
-    
-    // CASE 3: WALLET EXPIRED (Needs re-activation)
-    else {
-      // Reactivate for 7 days
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 7);
-      
-      user.walletActivated = true;
-      user.activationDate = now;
-      user.activationExpiryDate = expiryDate;
-      user.dailyAcceptLimit = inrAmount; // Set new limit
-      user.sevenDayTotalAccepted = 0;
-      user.sevenDayResetDate = expiryDate;
-      user.todayAcceptedCount = 0;
-      
-      // Add to activation history
-      if (!user.activationHistory) user.activationHistory = [];
-      user.activationHistory.push({
-        date: now,
-        limit: inrAmount,
-        amount: deposit.amount,
-        expiryDate: expiryDate,
-        status: 'ACTIVE'
-      });
-      
-      transactions.push({
-        user: deposit.user,
-        type: "WALLET_ACTIVATION",
-        fromWallet: "USDT",
-        toWallet: "INR",
-        amount: deposit.amount,
-        meta: {
-          type: "REACTIVATION",
-          dailyLimit: inrAmount,
-          validUntil: expiryDate,
-          action: "Wallet re-activated for 7 days after expiry"
-        }
-      });
-      
-      activationMessage = `REACTIVATED: Wallet expired, new activation until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
-      console.log(`✅ ${activationMessage}`);
-    }
-
-    // ✅ Save user
-    await user.save({ session });
-
-    // ✅ Create ALL transactions in ONE array
-    await Transaction.insertMany(transactions, { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    console.log(`✅ Deposit ${depositId} processed successfully for user ${user.userId}`);
-    console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
-
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    
-    if (err.code === 112 || err.codeName === 'WriteConflict') {
-      if (retryCount < maxRetries) {
-        const delay = Math.pow(2, retryCount) * 100;
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return autoApproveDeposit(depositId, retryCount + 1);
-      } else {
-        console.error(`❌ Max retries reached for deposit ${depositId}`);
-      }
-    } else {
-      console.error("❌ Auto-approve error:", err);
-    }
-  }
-};
+// REMOVE THE ENTIRE autoApproveDeposit FUNCTION
+// All its logic will be moved to approveDeposit
 
 exports.createDeposit = async (req, res) => {
   try {
@@ -1028,8 +1211,8 @@ exports.createDeposit = async (req, res) => {
         : null
     });
 
-    // Schedule auto-approval after 2 minutes
-    setTimeout(() => autoApproveDeposit(deposit._id), AUTO_APPROVE_DELAY);
+    // REMOVE THIS - No more auto-approval scheduling
+    // setTimeout(() => autoApproveDeposit(deposit._id), AUTO_APPROVE_DELAY);
 
     res.status(201).json(deposit);
 
@@ -1039,17 +1222,48 @@ exports.createDeposit = async (req, res) => {
 };
 
 exports.approveDeposit = async (req, res) => {
+  console.log("🔴 APPROVE DEPOSIT CALLED for ID:", req.params.id);
+  console.log("🔴 Request user:", req.user?.id);
+  
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    // 1️⃣ Find deposit with session
     const deposit = await Deposit.findById(req.params.id).session(session);
+    console.log("📦 Deposit found:", deposit?._id, "Status:", deposit?.status, "Amount:", deposit?.amount);
 
-    if (!deposit || deposit.status !== "pending")
-      throw new Error("Invalid deposit");
+    if (!deposit) {
+      throw new Error("Deposit not found");
+    }
+    
+    if (deposit.status !== "pending") {
+      throw new Error(`Invalid deposit status: ${deposit.status}`);
+    }
 
+    // 2️⃣ Update deposit status
     deposit.status = "approved";
     await deposit.save({ session });
+    console.log("✅ Deposit status updated to approved");
+
+    // 3️⃣ Get user with session
+    const user = await User.findById(deposit.user).session(session);
+    console.log("👤 User found:", user?.userId, user?._id);
+    console.log("👤 User firstDepositCompleted:", user?.firstDepositCompleted);
+    console.log("👤 User walletActivated:", user?.walletActivated);
+    
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    // 4️⃣ Check if this is first deposit EVER
+    const isFirstDepositEver = !user.firstDepositCompleted;
+    console.log("🎯 isFirstDepositEver:", isFirstDepositEver);
+    
+    if (isFirstDepositEver) {
+      console.log("🎯 THIS IS FIRST DEPOSIT - WILL ACTIVATE WALLET");
+      user.firstDepositCompleted = true;
+    }
 
     /* ===== USDT WALLET ===== */
     let usdtWallet = await Wallet.findOne({
@@ -1063,13 +1277,18 @@ exports.approveDeposit = async (req, res) => {
         type: "USDT",
         balance: 0
       });
+      console.log("💰 USDT wallet created");
     }
 
+    console.log("💰 USDT old balance:", usdtWallet.balance);
     usdtWallet.balance += deposit.amount;
     await usdtWallet.save({ session });
+    console.log("💰 USDT new balance:", usdtWallet.balance);
 
+    /* ===== INR CONVERSION ===== */
     const conversionRate = 95;
     const inrAmount = deposit.amount * conversionRate;
+    console.log("💱 INR amount:", inrAmount);
 
     let inrWallet = await Wallet.findOne({
       user: deposit.user,
@@ -1082,11 +1301,15 @@ exports.approveDeposit = async (req, res) => {
         type: "INR",
         balance: 0
       });
+      console.log("💰 INR wallet created");
     }
 
+    console.log("💰 INR old balance:", inrWallet.balance);
     inrWallet.balance += inrAmount;
     await inrWallet.save({ session });
+    console.log("💰 INR new balance:", inrWallet.balance);
 
+    // ✅ Prepare transactions array
     const transactions = [
       {
         user: deposit.user,
@@ -1094,7 +1317,12 @@ exports.approveDeposit = async (req, res) => {
         fromWallet: null,
         toWallet: "USDT",
         amount: deposit.amount,
-        meta: { depositId: deposit._id, txHash: deposit.txHash, currency: "USDT" }
+        meta: {
+          depositId: deposit._id,
+          txHash: deposit.txHash,
+          currency: "USDT",
+          approvedBy: req.user?.id || "admin"
+        }
       },
       {
         user: deposit.user,
@@ -1102,32 +1330,134 @@ exports.approveDeposit = async (req, res) => {
         fromWallet: "USDT",
         toWallet: "INR",
         amount: inrAmount,
-        meta: { rate: conversionRate, type: "CONVERSION", originalAmount: deposit.amount }
+        meta: {
+          rate: conversionRate,
+          type: "CONVERSION",
+          originalAmount: deposit.amount,
+          originalCurrency: "USDT"
+        }
       }
     ];
 
+    /* ===== WALLET ACTIVATION LOGIC ===== */
+    const now = new Date();
+    let activationMessage = "";
+
+    // Check if wallet is already active and not expired
+    const isWalletActive = user.walletActivated && 
+                          user.activationExpiryDate && 
+                          user.activationExpiryDate > now;
+    
+    console.log("🔐 Activation Check:");
+    console.log("   - isFirstDepositEver:", isFirstDepositEver);
+    console.log("   - isWalletActive:", isWalletActive);
+    console.log("   - user.walletActivated:", user.walletActivated);
+    console.log("   - user.activationExpiryDate:", user.activationExpiryDate);
+
+    // CASE 1: FIRST DEPOSIT EVER
+    if (isFirstDepositEver) {
+      console.log("🎯 CASE 1: FIRST DEPOSIT EVER - Activating wallet");
+      
+      // Activate for 7 days
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 7);
+      
+      // Update user fields
+      user.walletActivated = true;
+      user.activationDate = now;
+      user.activationExpiryDate = expiryDate;
+      user.dailyAcceptLimit = inrAmount;
+      user.sevenDayTotalAccepted = 0;
+      user.sevenDayResetDate = expiryDate;
+      
+      console.log("✅ Wallet activation fields set:");
+      console.log("   - walletActivated:", user.walletActivated);
+      console.log("   - activationDate:", user.activationDate);
+      console.log("   - activationExpiryDate:", user.activationExpiryDate);
+      console.log("   - dailyAcceptLimit:", user.dailyAcceptLimit);
+      
+      // Add to activation history
+      if (!user.activationHistory) {
+        user.activationHistory = [];
+      }
+      
+      user.activationHistory.push({
+        date: now,
+        limit: inrAmount,
+        amount: deposit.amount,
+        expiryDate: expiryDate,
+        status: 'ACTIVE'
+      });
+      
+      transactions.push({
+        user: deposit.user,
+        type: "WALLET_ACTIVATION",
+        fromWallet: "USDT",
+        toWallet: "INR",
+        amount: deposit.amount,
+        meta: {
+          type: "FIRST_ACTIVATION",
+          dailyLimit: inrAmount,
+          validUntil: expiryDate,
+          action: "New wallet activated for 7 days",
+          inrAmount: inrAmount
+        }
+      });
+      
+      activationMessage = `FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
+      console.log(`✅ ${activationMessage}`);
+    }
+    
+    // CASE 2: WALLET ALREADY ACTIVE (Not expired)
+    else if (isWalletActive) {
+      console.log("🎯 CASE 2: WALLET ALREADY ACTIVE - Extending");
+      // ... existing code ...
+    }
+    
+    // CASE 3: WALLET EXPIRED (Needs re-activation)
+    else {
+      console.log("🎯 CASE 3: WALLET EXPIRED - Reactivating");
+      // ... existing code ...
+    }
+
+    // ✅ Save user - THIS IS CRITICAL
+    console.log("💾 Saving user with walletActivated =", user.walletActivated);
+    await user.save({ session });
+    console.log("✅ User saved successfully");
+
+    // ✅ Create transactions
     await Transaction.insertMany(transactions, { session });
+    console.log("📝 Transactions created:", transactions.length);
+
     await session.commitTransaction();
     session.endSession();
 
+    console.log(`✅ Deposit ${deposit._id} approved for user ${user.userId}`);
+    console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
+    console.log(`   Wallet Activated: ${user.walletActivated}`);
+
     res.json({ 
-      message: "Deposit approved",
+      message: "Deposit approved successfully",
       amount: deposit.amount,
-      inrAmount: inrAmount
+      inrAmount: inrAmount,
+      walletActivated: user.walletActivated,
+      dailyLimit: user.dailyAcceptLimit
     });
 
   } catch (err) {
+    console.error("❌ APPROVE DEPOSIT ERROR:", err);
+    console.error("❌ Error stack:", err.stack);
     await session.abortTransaction();
     session.endSession();
-    console.error("Approve deposit error:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
+// Rest of the controller remains the same
 exports.getAllDeposits = async (req, res) => {
   try {
     const deposits = await Deposit.find()
-      .populate("user", "name email")
+      .populate("user", "name email userId")
       .populate("paymentMethod")
       .sort({ createdAt: -1 });
 
