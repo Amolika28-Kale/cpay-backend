@@ -73,6 +73,91 @@
 // module.exports = mongoose.model("Scanner", scannerSchema);
 
 
+// const mongoose = require("mongoose");
+
+// const scannerSchema = new mongoose.Schema(
+// {
+//   user: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     default: null // ✅ null allowed for system requests
+//   },
+
+//   amount: {
+//     type: Number,
+//     required: true
+//   },
+
+//   image: {
+//     type: String,
+//     required: true
+//   },
+
+//   upiLink: {
+//     type: String,
+//     default: null
+//   },
+
+//   paymentScreenshot: {
+//     type: String,
+//     default: null
+//   },
+
+//   status: {
+//     type: String,
+//     enum: [
+//       "ACTIVE",
+//       "ACCEPTED",
+//       "PAYMENT_SUBMITTED",
+//       "COMPLETED",
+//       "EXPIRED"
+//     ],
+//     default: "ACTIVE"
+//   },
+
+//   acceptedBy: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     default: null
+//   },
+
+//   acceptedAt: Date,
+//   paymentSubmittedAt: Date,
+//   completedAt: Date,
+
+//   expiresAt: {
+//     type: Date,
+//     default: () => new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+//   },
+  
+//   isAutoRequest: {
+//   type: Boolean,
+//   default: false
+// },
+
+// autoRequestCycle: {
+//   type: Number,
+//   default: 0 // 1 for first, 2 for second
+// },
+
+// createdFor: {
+//   type: mongoose.Schema.Types.ObjectId,
+//   ref: "User",
+//   default: null
+// }
+// },
+// { timestamps: true }
+// );
+
+// // Index for better query performance
+// scannerSchema.index({ expiresAt: 1, status: 1 });
+// scannerSchema.index({ isAutoRequest: 1, status: 1 });
+// scannerSchema.index({ user: 1 });
+// scannerSchema.index({ createdFor: 1 });
+
+// module.exports = mongoose.model("Scanner", scannerSchema);
+
+
 const mongoose = require("mongoose");
 
 const scannerSchema = new mongoose.Schema(
@@ -103,6 +188,22 @@ const scannerSchema = new mongoose.Schema(
     default: null
   },
 
+  // ✅ Multiple screenshots support
+  paymentScreenshots: [{
+    url: { type: String },
+    uploadedAt: { type: Date, default: Date.now },
+    isActive: { type: Boolean, default: true }
+  }],
+
+  // ✅ Screenshot change history
+  screenshotHistory: [{
+    oldScreenshot: String,
+    newScreenshot: String,
+    changedAt: { type: Date, default: Date.now },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    reason: String
+  }],
+
   status: {
     type: String,
     enum: [
@@ -131,20 +232,20 @@ const scannerSchema = new mongoose.Schema(
   },
   
   isAutoRequest: {
-  type: Boolean,
-  default: false
-},
+    type: Boolean,
+    default: false
+  },
 
-autoRequestCycle: {
-  type: Number,
-  default: 0 // 1 for first, 2 for second
-},
+  autoRequestCycle: {
+    type: Number,
+    default: 0 // 1 for first, 2 for second
+  },
 
-createdFor: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null
-}
+  createdFor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+  }
 },
 { timestamps: true }
 );

@@ -1177,12 +1177,7 @@ const Wallet = require("../models/Wallet");
 const Transaction = require("../models/Transaction");
 const User = require("../models/User");
 
-// REMOVE THIS - No more auto-approve
-// const AUTO_APPROVE_DELAY = 2 * 60 * 1000; // 2 minutes
-
-// REMOVE THE ENTIRE autoApproveDeposit FUNCTION
-// All its logic will be moved to approveDeposit
-
+// ==================== CREATE DEPOSIT ====================
 exports.createDeposit = async (req, res) => {
   try {
     const { amount, txHash, paymentMethodId } = req.body;
@@ -1201,35 +1196,112 @@ exports.createDeposit = async (req, res) => {
       });
     }
 
+    // Initialize screenshots array
+    const screenshots = [{
+      url: `/uploads/${req.file.filename}`,
+      uploadedAt: new Date(),
+      isActive: true
+    }];
+
     const deposit = await Deposit.create({
       user: req.user.id,
       paymentMethod: paymentMethodId,
       amount: depositAmount,
       txHash: txHash.trim(),
-      paymentScreenshot: req.file
-        ? `/uploads/${req.file.filename}`
-        : null
+      paymentScreenshot: `/uploads/${req.file.filename}`,
+      paymentScreenshots: screenshots,
+      status: "pending"
     });
-
-    // REMOVE THIS - No more auto-approval scheduling
-    // setTimeout(() => autoApproveDeposit(deposit._id), AUTO_APPROVE_DELAY);
 
     res.status(201).json(deposit);
 
   } catch (err) {
+    console.error("Create deposit error:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
+// ==================== UPDATE DEPOSIT SCREENSHOT ====================
+exports.updateDepositScreenshot = async (req, res) => {
+  try {
+    const { depositId, reason } = req.body;
+    const userId = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({ message: "Screenshot required" });
+    }
+
+    const deposit = await Deposit.findById(depositId);
+
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
+
+    // Check if user owns this deposit
+    if (deposit.user.toString() !== userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // Check if deposit is still pending (can only update pending deposits)
+    if (deposit.status !== "pending") {
+      return res.status(400).json({ message: `Cannot update ${deposit.status} deposit` });
+    }
+
+    // Initialize arrays if not exists
+    if (!deposit.paymentScreenshots) {
+      deposit.paymentScreenshots = [];
+    }
+    if (!deposit.screenshotHistory) {
+      deposit.screenshotHistory = [];
+    }
+
+    // Save old screenshot to history
+    if (deposit.paymentScreenshots.length > 0) {
+      const latestScreenshot = deposit.paymentScreenshots[deposit.paymentScreenshots.length - 1];
+      deposit.screenshotHistory.push({
+        oldScreenshot: latestScreenshot.url,
+        newScreenshot: `/uploads/${req.file.filename}`,
+        changedAt: new Date(),
+        changedBy: userId,
+        reason: reason || "Screenshot updated"
+      });
+    }
+
+    // Add new screenshot
+    const newScreenshot = {
+      url: `/uploads/${req.file.filename}`,
+      uploadedAt: new Date(),
+      isActive: true
+    };
+
+    deposit.paymentScreenshots.push(newScreenshot);
+    deposit.paymentScreenshot = `/uploads/${req.file.filename}`; // Update main screenshot
+
+    await deposit.save();
+
+    // Emit socket event for real-time update (if using sockets)
+    // io.to(userId).emit('deposit_updated', { depositId, status: 'pending' });
+
+    res.json({
+      message: "Screenshot updated successfully",
+      screenshotCount: deposit.paymentScreenshots.length,
+      latestScreenshot: newScreenshot
+    });
+
+  } catch (err) {
+    console.error("Update deposit screenshot error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ==================== APPROVE DEPOSIT ====================
 exports.approveDeposit = async (req, res) => {
   console.log("🔴 APPROVE DEPOSIT CALLED for ID:", req.params.id);
-  console.log("🔴 Request user:", req.user?.id);
   
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // 1️⃣ Find deposit with session
     const deposit = await Deposit.findById(req.params.id).session(session);
     console.log("📦 Deposit found:", deposit?._id, "Status:", deposit?.status, "Amount:", deposit?.amount);
 
@@ -1241,22 +1313,17 @@ exports.approveDeposit = async (req, res) => {
       throw new Error(`Invalid deposit status: ${deposit.status}`);
     }
 
-    // 2️⃣ Update deposit status
     deposit.status = "approved";
     await deposit.save({ session });
     console.log("✅ Deposit status updated to approved");
 
-    // 3️⃣ Get user with session
     const user = await User.findById(deposit.user).session(session);
     console.log("👤 User found:", user?.userId, user?._id);
-    console.log("👤 User firstDepositCompleted:", user?.firstDepositCompleted);
-    console.log("👤 User walletActivated:", user?.walletActivated);
     
     if (!user) {
       throw new Error("User not found");
     }
     
-    // 4️⃣ Check if this is first deposit EVER
     const isFirstDepositEver = !user.firstDepositCompleted;
     console.log("🎯 isFirstDepositEver:", isFirstDepositEver);
     
@@ -1309,7 +1376,7 @@ exports.approveDeposit = async (req, res) => {
     await inrWallet.save({ session });
     console.log("💰 INR new balance:", inrWallet.balance);
 
-    // ✅ Prepare transactions array
+    // Prepare transactions array
     const transactions = [
       {
         user: deposit.user,
@@ -1341,28 +1408,19 @@ exports.approveDeposit = async (req, res) => {
 
     /* ===== WALLET ACTIVATION LOGIC ===== */
     const now = new Date();
-    let activationMessage = "";
 
     // Check if wallet is already active and not expired
     const isWalletActive = user.walletActivated && 
                           user.activationExpiryDate && 
                           user.activationExpiryDate > now;
-    
-    console.log("🔐 Activation Check:");
-    console.log("   - isFirstDepositEver:", isFirstDepositEver);
-    console.log("   - isWalletActive:", isWalletActive);
-    console.log("   - user.walletActivated:", user.walletActivated);
-    console.log("   - user.activationExpiryDate:", user.activationExpiryDate);
 
     // CASE 1: FIRST DEPOSIT EVER
     if (isFirstDepositEver) {
       console.log("🎯 CASE 1: FIRST DEPOSIT EVER - Activating wallet");
       
-      // Activate for 7 days
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 7);
       
-      // Update user fields
       user.walletActivated = true;
       user.activationDate = now;
       user.activationExpiryDate = expiryDate;
@@ -1370,13 +1428,8 @@ exports.approveDeposit = async (req, res) => {
       user.sevenDayTotalAccepted = 0;
       user.sevenDayResetDate = expiryDate;
       
-      console.log("✅ Wallet activation fields set:");
-      console.log("   - walletActivated:", user.walletActivated);
-      console.log("   - activationDate:", user.activationDate);
-      console.log("   - activationExpiryDate:", user.activationExpiryDate);
-      console.log("   - dailyAcceptLimit:", user.dailyAcceptLimit);
+      console.log("✅ Wallet activation fields set");
       
-      // Add to activation history
       if (!user.activationHistory) {
         user.activationHistory = [];
       }
@@ -1404,8 +1457,7 @@ exports.approveDeposit = async (req, res) => {
         }
       });
       
-      activationMessage = `FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`;
-      console.log(`✅ ${activationMessage}`);
+      console.log(`✅ FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`);
     }
     
     // CASE 2: WALLET ALREADY ACTIVE (Not expired)
@@ -1420,14 +1472,10 @@ exports.approveDeposit = async (req, res) => {
       // ... existing code ...
     }
 
-    // ✅ Save user - THIS IS CRITICAL
     console.log("💾 Saving user with walletActivated =", user.walletActivated);
     await user.save({ session });
-    console.log("✅ User saved successfully");
 
-    // ✅ Create transactions
     await Transaction.insertMany(transactions, { session });
-    console.log("📝 Transactions created:", transactions.length);
 
     await session.commitTransaction();
     session.endSession();
@@ -1446,14 +1494,83 @@ exports.approveDeposit = async (req, res) => {
 
   } catch (err) {
     console.error("❌ APPROVE DEPOSIT ERROR:", err);
-    console.error("❌ Error stack:", err.stack);
     await session.abortTransaction();
     session.endSession();
     res.status(500).json({ message: err.message });
   }
 };
 
-// Rest of the controller remains the same
+// ==================== REJECT DEPOSIT ====================
+exports.rejectDeposit = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const deposit = await Deposit.findById(req.params.id).populate('user');
+
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
+
+    if (deposit.status !== "pending") {
+      return res.status(400).json({ message: "Already processed" });
+    }
+
+    deposit.status = "rejected";
+    deposit.rejectReason = reason || "Transaction verification failed. Please submit valid proof.";
+    await deposit.save();
+
+    console.log(`❌ Deposit ${deposit._id} rejected for user ${deposit.user?.userId}`);
+
+    res.json({ 
+      message: "Deposit rejected",
+      depositId: deposit._id,
+      reason: deposit.rejectReason
+    });
+
+  } catch (err) {
+    console.error("Reject deposit error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ==================== GET MY DEPOSITS ====================
+exports.getMyDeposits = async (req, res) => {
+  try {
+    const deposits = await Deposit.find({ user: req.user.id })
+      .populate('paymentMethod')
+      .sort({ createdAt: -1 });
+
+    // ✅ FIX: Always return an array
+    res.json(deposits || []);
+  } catch (err) {
+    console.error("Get my deposits error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ==================== GET DEPOSIT BY ID ====================
+exports.getDepositById = async (req, res) => {
+  try {
+    const deposit = await Deposit.findById(req.params.id)
+      .populate('user', 'name email userId')
+      .populate('paymentMethod');
+
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
+
+    // Check if user owns this deposit or is admin
+    if (deposit.user._id.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    res.json(deposit);
+  } catch (err) {
+    console.error("Get deposit by ID error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ==================== GET ALL DEPOSITS (ADMIN) ====================
 exports.getAllDeposits = async (req, res) => {
   try {
     const deposits = await Deposit.find()
@@ -1463,39 +1580,7 @@ exports.getAllDeposits = async (req, res) => {
 
     res.json(deposits);
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-exports.rejectDeposit = async (req, res) => {
-  try {
-    const { reason } = req.body;
-    const deposit = await Deposit.findById(req.params.id);
-
-    if (!deposit)
-      return res.status(404).json({ message: "Deposit not found" });
-
-    if (deposit.status !== "pending")
-      return res.status(400).json({ message: "Already processed" });
-
-    deposit.status = "rejected";
-    deposit.rejectReason = reason || "Not specified";
-    await deposit.save();
-
-    res.json({ message: "Deposit rejected" });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-exports.getMyDeposits = async (req, res) => {
-  try {
-    const deposits = await Deposit.find({ user: req.user.id })
-      .sort({ createdAt: -1 });
-
-    res.json(deposits);
-  } catch (err) {
+    console.error("Get all deposits error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

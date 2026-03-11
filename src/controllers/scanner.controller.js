@@ -1249,6 +1249,51 @@ exports.acceptRequest = async (req, res) => {
 /* =========================================================
    4️⃣ SUBMIT PAYMENT SCREENSHOT (User B) - UPDATED for Auto Request
 ========================================================= */
+// exports.submitPayment = async (req, res) => {
+//   try {
+//     const { scannerId } = req.body;
+//     const userId = req.user.id;
+
+//     const scanner = await Scanner.findById(scannerId);
+
+//     if (!scanner || scanner.status !== "ACCEPTED")
+//       return res.status(400).json({ message: "Invalid state" });
+
+//     if (scanner.acceptedBy.toString() !== userId)
+//       return res.status(403).json({ message: "Not authorized" });
+
+//     if (!req.file)
+//       return res.status(400).json({ message: "Screenshot required" });
+
+//     scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
+//     scanner.status = "PAYMENT_SUBMITTED";
+//     scanner.paymentSubmittedAt = new Date();
+
+//     await scanner.save();
+
+//     // ✅ If it's an AUTO REQUEST, schedule auto-confirm
+//     if (scanner.isAutoRequest) {
+//       setTimeout(() => {
+//         AutoRequestService.autoConfirmRequest(scannerId);
+//       }, 60 * 1000);
+      
+//       return res.json({ 
+//         message: "Payment proof submitted! Transaction will auto-confirm in 1 minute.",
+//         autoConfirmIn: "1 minute"
+//       });
+//     }
+
+//     res.json({ message: "Screenshot submitted successfully" });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+
+/* =========================================================
+   4️⃣ SUBMIT PAYMENT SCREENSHOT (Multiple Support)
+========================================================= */
 exports.submitPayment = async (req, res) => {
   try {
     const { scannerId } = req.body;
@@ -1265,31 +1310,211 @@ exports.submitPayment = async (req, res) => {
     if (!req.file)
       return res.status(400).json({ message: "Screenshot required" });
 
-    scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
+    // Initialize screenshots array if not exists
+    if (!scanner.paymentScreenshots) {
+      scanner.paymentScreenshots = [];
+    }
+
+    // Add new screenshot
+    const newScreenshot = {
+      url: `/uploads/${req.file.filename}`,
+      uploadedAt: new Date(),
+      isActive: true
+    };
+
+    scanner.paymentScreenshots.push(newScreenshot);
+    scanner.paymentScreenshot = `/uploads/${req.file.filename}`; // Keep backward compatibility
     scanner.status = "PAYMENT_SUBMITTED";
     scanner.paymentSubmittedAt = new Date();
 
     await scanner.save();
 
-    // ✅ If it's an AUTO REQUEST, schedule auto-confirm
-    if (scanner.isAutoRequest) {
-      setTimeout(() => {
-        AutoRequestService.autoConfirmRequest(scannerId);
-      }, 60 * 1000);
-      
-      return res.json({ 
-        message: "Payment proof submitted! Transaction will auto-confirm in 1 minute.",
-        autoConfirmIn: "1 minute"
-      });
-    }
-
-    res.json({ message: "Screenshot submitted successfully" });
+    res.json({ 
+      message: "Screenshot submitted successfully",
+      screenshotCount: scanner.paymentScreenshots.length,
+      latestScreenshot: newScreenshot
+    });
 
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
+/* =========================================================
+   4️⃣.1️⃣ UPDATE/CHANGE SCREENSHOT
+========================================================= */
+exports.updateScreenshot = async (req, res) => {
+  try {
+    const { scannerId, screenshotIndex, reason } = req.body;
+    const userId = req.user.id;
+
+    const scanner = await Scanner.findById(scannerId);
+
+    if (!scanner)
+      return res.status(404).json({ message: "Scanner not found" });
+
+    // Check if user is authorized (either acceptor or creator)
+    const isAcceptor = scanner.acceptedBy && scanner.acceptedBy.toString() === userId;
+    const isCreator = scanner.user && scanner.user.toString() === userId;
+
+    if (!isAcceptor && !isCreator) {
+      return res.status(403).json({ message: "Not authorized to update screenshot" });
+    }
+
+    if (!req.file)
+      return res.status(400).json({ message: "New screenshot required" });
+
+    if (!scanner.paymentScreenshots || scanner.paymentScreenshots.length === 0) {
+      return res.status(400).json({ message: "No screenshots to update" });
+    }
+
+    // Initialize screenshotHistory if not exists
+    if (!scanner.screenshotHistory) {
+      scanner.screenshotHistory = [];
+    }
+
+    let targetIndex = screenshotIndex;
+
+    // If no index provided, update the latest active screenshot
+    if (targetIndex === undefined || targetIndex === null) {
+      // Find the latest active screenshot
+      const activeScreenshots = scanner.paymentScreenshots.filter(s => s.isActive);
+      if (activeScreenshots.length === 0) {
+        return res.status(400).json({ message: "No active screenshots found" });
+      }
+      
+      // Get the latest active screenshot index
+      const latestActive = activeScreenshots[activeScreenshots.length - 1];
+      targetIndex = scanner.paymentScreenshots.findIndex(s => s.url === latestActive.url);
+    }
+
+    // Validate index
+    if (targetIndex < 0 || targetIndex >= scanner.paymentScreenshots.length) {
+      return res.status(400).json({ message: "Invalid screenshot index" });
+    }
+
+    // Save old screenshot to history
+    scanner.screenshotHistory.push({
+      oldScreenshot: scanner.paymentScreenshots[targetIndex].url,
+      newScreenshot: `/uploads/${req.file.filename}`,
+      changedAt: new Date(),
+      changedBy: userId,
+      reason: reason || "Screenshot updated"
+    });
+
+    // Update the screenshot
+    scanner.paymentScreenshots[targetIndex] = {
+      url: `/uploads/${req.file.filename}`,
+      uploadedAt: new Date(),
+      isActive: true
+    };
+
+    // Update main paymentScreenshot field (for backward compatibility)
+    // Set to the latest active screenshot
+    const activeScreenshots = scanner.paymentScreenshots.filter(s => s.isActive);
+    if (activeScreenshots.length > 0) {
+      scanner.paymentScreenshot = activeScreenshots[activeScreenshots.length - 1].url;
+    }
+
+    await scanner.save();
+
+    res.json({ 
+      message: "Screenshot updated successfully",
+      screenshotCount: scanner.paymentScreenshots.length,
+      updatedScreenshot: scanner.paymentScreenshots[targetIndex]
+    });
+
+  } catch (err) {
+    console.error("Error updating screenshot:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* =========================================================
+   4️⃣.2️⃣ GET ALL SCREENSHOTS FOR A SCANNER
+========================================================= */
+exports.getScannerScreenshots = async (req, res) => {
+  try {
+    const { scannerId } = req.params;
+    const userId = req.user.id;
+
+    const scanner = await Scanner.findById(scannerId)
+      .populate("user", "userId name")
+      .populate("acceptedBy", "userId name");
+
+    if (!scanner)
+      return res.status(404).json({ message: "Scanner not found" });
+
+    // Check if user is authorized
+    const isAcceptor = scanner.acceptedBy && scanner.acceptedBy._id.toString() === userId;
+    const isCreator = scanner.user && scanner.user._id.toString() === userId;
+
+    if (!isAcceptor && !isCreator) {
+      return res.status(403).json({ message: "Not authorized to view screenshots" });
+    }
+
+    res.json({
+      scannerId: scanner._id,
+      amount: scanner.amount,
+      status: scanner.status,
+      screenshots: scanner.paymentScreenshots || [],
+      screenshotHistory: scanner.screenshotHistory || [],
+      createdAt: scanner.createdAt,
+      acceptedAt: scanner.acceptedAt
+    });
+
+  } catch (err) {
+    console.error("Error fetching screenshots:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* =========================================================
+   4️⃣.3️⃣ DELETE SCREENSHOT (Soft delete)
+========================================================= */
+exports.deleteScreenshot = async (req, res) => {
+  try {
+    const { scannerId, screenshotIndex } = req.body;
+    const userId = req.user.id;
+
+    const scanner = await Scanner.findById(scannerId);
+
+    if (!scanner)
+      return res.status(404).json({ message: "Scanner not found" });
+
+    // Only acceptor can delete their screenshots
+    if (!scanner.acceptedBy || scanner.acceptedBy.toString() !== userId) {
+      return res.status(403).json({ message: "Not authorized to delete screenshot" });
+    }
+
+    if (!scanner.paymentScreenshots || screenshotIndex >= scanner.paymentScreenshots.length) {
+      return res.status(400).json({ message: "Invalid screenshot index" });
+    }
+
+    // Soft delete - mark as inactive
+    scanner.paymentScreenshots[screenshotIndex].isActive = false;
+
+    // Update main paymentScreenshot to latest active
+    const activeScreenshots = scanner.paymentScreenshots.filter(s => s.isActive);
+    if (activeScreenshots.length > 0) {
+      scanner.paymentScreenshot = activeScreenshots[activeScreenshots.length - 1].url;
+    } else {
+      scanner.paymentScreenshot = null;
+      scanner.status = "ACCEPTED"; // Revert status if no screenshots
+    }
+
+    await scanner.save();
+
+    res.json({ 
+      message: "Screenshot deleted successfully",
+      activeScreenshots: activeScreenshots.length
+    });
+
+  } catch (err) {
+    console.error("Error deleting screenshot:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
 
 /* =========================================================
    5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - BALANCE DEDUCTION HERE
