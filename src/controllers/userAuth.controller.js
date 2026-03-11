@@ -722,29 +722,165 @@ const bcryptjs = require("bcryptjs");
 
 // controllers/userAuth.controller.js - Register function
 
+// exports.register = async (req, res) => {
+//   try {
+//     let { userId, pin, referralCode } = req.body;
+
+//     if (!userId || !pin) {
+//       return res.status(400).json({ message: "User ID and PIN are required" });
+//     }
+
+//     // User ID validation
+//     if (!/^[a-zA-Z0-9]{4,20}$/.test(userId)) {
+//       return res.status(400).json({ message: "User ID must be 4-20 alphanumeric characters" });
+//     }
+
+//     if (pin.length !== 6 || !/^\d+$/.test(pin)) {
+//       return res.status(400).json({ message: "PIN must be 6 digits" });
+//     }
+
+//     userId = userId.trim().toUpperCase();
+
+//     // Check if user exists
+//     const exists = await User.findOne({ userId });
+//     if (exists) {
+//       return res.status(400).json({ message: "User ID already taken" });
+//     }
+
+//     let referredUser = null;
+
+//     if (referralCode) {
+//       referredUser = await User.findOne({ referralCode: referralCode.trim().toUpperCase() });
+//       if (!referredUser) {
+//         return res.status(400).json({ message: "Invalid referral code" });
+//       }
+//     }
+
+//     // ✅ Create user with auto request tracking
+//     const user = new User({
+//       userId,
+//       pin,
+//       referredBy: referredUser ? referredUser._id : null,
+//       autoRequest: {
+//         firstRequestCreated: false,
+//         secondRequestCreated: false,
+//         autoRequestCompleted: false,
+//         firstRequestAmount: 1000,
+//         secondRequestAmount: 1000
+//       }
+//     });
+
+//     await user.save();
+
+//     // Create default wallets
+//     const walletTypes = ["USDT", "INR", "CASHBACK"];
+//     for (let type of walletTypes) {
+//       await Wallet.create({ user: user._id, type, balance: 0 });
+//     }
+
+//     // Add to referral tree if referred
+//     if (referredUser) {
+//       await User.addToReferralTree(user._id, referredUser._id, 1);
+//     }
+
+//     // ✅ Create FIRST AUTO REQUEST for new user (only once)
+//     const AutoRequestService = require("../../services/autoRequestService");
+//     let autoRequest = null;
+//     try {
+//       autoRequest = await AutoRequestService.createFirstAutoRequestForUser(user._id, 1000);
+//       console.log(`✅ First auto request created for new user: ${user.userId}`);
+//     } catch (autoRequestError) {
+//       console.error("❌ Failed to create auto request for new user:", autoRequestError);
+//     }
+
+//     const token = jwt.sign(
+//       { id: user._id, role: user.role },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     const safeUser = {
+//       _id: user._id,
+//       userId: user.userId,
+//       referralCode: user.referralCode,
+//       role: user.role
+//     };
+
+//     res.status(201).json({ 
+//       token, 
+//       user: safeUser,
+//       autoRequest: autoRequest ? {
+//         id: autoRequest._id,
+//         amount: autoRequest.amount,
+//         expiresAt: autoRequest.expiresAt,
+//         type: "FIRST_WELCOME_BONUS"
+//       } : null
+//     });
+
+//   } catch (err) {
+//     console.error("Register Error:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// controllers/userAuth.controller.js
+
 exports.register = async (req, res) => {
   try {
-    let { userId, pin, referralCode } = req.body;
+    let { userId, pin, email, referralCode } = req.body;  // ✅ email add केला
 
-    if (!userId || !pin) {
-      return res.status(400).json({ message: "User ID and PIN are required" });
+    if (!userId || !pin || !email) {                       // ✅ email required
+      return res.status(400).json({ 
+        success: false,
+        message: "User ID, PIN and Email are required" 
+      });
     }
 
-    // User ID validation
-    if (!/^[a-zA-Z0-9]{4,20}$/.test(userId)) {
-      return res.status(400).json({ message: "User ID must be 4-20 alphanumeric characters" });
+    // User ID validation (6 digits)
+    if (!/^\d{6}$/.test(userId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "User ID must be 6 digits" 
+      });
+    }
+
+    // Email validation
+    const emailRegex = /^\S+@\S+\.\S+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Please enter a valid email" 
+      });
     }
 
     if (pin.length !== 6 || !/^\d+$/.test(pin)) {
-      return res.status(400).json({ message: "PIN must be 6 digits" });
+      return res.status(400).json({ 
+        success: false,
+        message: "PIN must be 6 digits" 
+      });
     }
 
     userId = userId.trim().toUpperCase();
+    email = email.toLowerCase().trim();
 
-    // Check if user exists
-    const exists = await User.findOne({ userId });
+    // Check if user exists by userId OR email
+    const exists = await User.findOne({ 
+      $or: [{ userId }, { email }] 
+    });
+    
     if (exists) {
-      return res.status(400).json({ message: "User ID already taken" });
+      if (exists.userId === userId) {
+        return res.status(400).json({ 
+          success: false,
+          message: "User ID already taken" 
+        });
+      }
+      if (exists.email === email) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Email already registered" 
+        });
+      }
     }
 
     let referredUser = null;
@@ -752,13 +888,17 @@ exports.register = async (req, res) => {
     if (referralCode) {
       referredUser = await User.findOne({ referralCode: referralCode.trim().toUpperCase() });
       if (!referredUser) {
-        return res.status(400).json({ message: "Invalid referral code" });
+        return res.status(400).json({ 
+          success: false,
+          message: "Invalid referral code" 
+        });
       }
     }
 
-    // ✅ Create user with auto request tracking
+    // ✅ Create user with email
     const user = new User({
       userId,
+      email,                    // ✅ email save करतोय
       pin,
       referredBy: referredUser ? referredUser._id : null,
       autoRequest: {
@@ -783,6 +923,19 @@ exports.register = async (req, res) => {
       await User.addToReferralTree(user._id, referredUser._id, 1);
     }
 
+    // ✅ Send welcome email with User ID (optional - त्रास नको असल्यास हा भाग काढू शकता)
+    try {
+      const { sendOtpEmail } = require("../../services/emailService");
+      await sendOtpEmail({
+        email: user.email,
+        otp: userId,  // User ID as OTP for welcome email
+        type: 'welcome'
+      });
+      console.log(`✅ Welcome email sent to ${user.email}`);
+    } catch (emailErr) {
+      console.log("Welcome email failed:", emailErr.message);
+    }
+
     // ✅ Create FIRST AUTO REQUEST for new user (only once)
     const AutoRequestService = require("../../services/autoRequestService");
     let autoRequest = null;
@@ -802,11 +955,13 @@ exports.register = async (req, res) => {
     const safeUser = {
       _id: user._id,
       userId: user.userId,
+      email: user.email,        // ✅ email return करतोय
       referralCode: user.referralCode,
       role: user.role
     };
 
     res.status(201).json({ 
+      success: true,
       token, 
       user: safeUser,
       autoRequest: autoRequest ? {
@@ -819,17 +974,97 @@ exports.register = async (req, res) => {
 
   } catch (err) {
     console.error("Register Error:", err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ 
+      success: false,
+      message: err.message 
+    });
   }
 };
 
-/* ================= LOGIN ================= */
+// /* ================= LOGIN ================= */
+// exports.login = async (req, res) => {
+//   try {
+//     let { userId, pin } = req.body;
+
+//     if (!userId || !pin) {
+//       return res.status(400).json({ 
+//         message: "User ID and PIN are required" 
+//       });
+//     }
+
+//     userId = userId.toString().trim().toUpperCase();
+    
+//     if (!/^\d{6}$/.test(userId)) {
+//       return res.status(400).json({ 
+//         message: "User ID must be 6 digits" 
+//       });
+//     }
+
+//     const user = await User.findOne({ userId });
+    
+//     if (!user) {
+//       return res.status(404).json({ 
+//         message: "User ID not found" 
+//       });
+//     }
+
+//     const match = await bcryptjs.compare(pin, user.pin);
+    
+//     if (!match) {
+//       return res.status(400).json({ 
+//         message: "Invalid PIN" 
+//       });
+//     }
+
+//     // ✅ Check if user has active auto request
+//     let activeAutoRequest = null;
+//     if (user.autoRequest?.enabled && user.autoRequest?.currentRequestId) {
+//       const Scanner = require("../models/Scanner");
+//       activeAutoRequest = await Scanner.findOne({
+//         _id: user.autoRequest.currentRequestId,
+//         status: "ACTIVE"
+//       });
+//     }
+
+//     const token = jwt.sign(
+//       { id: user._id, role: user.role, userId: user.userId },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     const safeUser = {
+//       _id: user._id,
+//       userId: user.userId,
+//       referralCode: user.referralCode,
+//       role: user.role,
+//       autoRequest: {
+//         enabled: user.autoRequest?.enabled || false,
+//         amount: user.autoRequest?.autoRequestAmount || 1000,
+//         hasActiveRequest: !!activeAutoRequest
+//       }
+//     };
+
+//     res.json({
+//       success: true,
+//       token,
+//       user: safeUser
+//     });
+
+//   } catch (err) {
+//     console.error("Login Error:", err);
+//     res.status(500).json({ 
+//       message: err.message || "Server error" 
+//     });
+//   }
+// };
+
 exports.login = async (req, res) => {
   try {
     let { userId, pin } = req.body;
 
     if (!userId || !pin) {
       return res.status(400).json({ 
+        success: false,
         message: "User ID and PIN are required" 
       });
     }
@@ -838,6 +1073,7 @@ exports.login = async (req, res) => {
     
     if (!/^\d{6}$/.test(userId)) {
       return res.status(400).json({ 
+        success: false,
         message: "User ID must be 6 digits" 
       });
     }
@@ -846,6 +1082,7 @@ exports.login = async (req, res) => {
     
     if (!user) {
       return res.status(404).json({ 
+        success: false,
         message: "User ID not found" 
       });
     }
@@ -854,6 +1091,7 @@ exports.login = async (req, res) => {
     
     if (!match) {
       return res.status(400).json({ 
+        success: false,
         message: "Invalid PIN" 
       });
     }
@@ -877,6 +1115,7 @@ exports.login = async (req, res) => {
     const safeUser = {
       _id: user._id,
       userId: user.userId,
+      email: user.email,                 // ✅ email return करतोय
       referralCode: user.referralCode,
       role: user.role,
       autoRequest: {
@@ -895,11 +1134,11 @@ exports.login = async (req, res) => {
   } catch (err) {
     console.error("Login Error:", err);
     res.status(500).json({ 
+      success: false,
       message: err.message || "Server error" 
     });
   }
 };
-
 /* ================= GET REFERRAL STATS ================= */
 exports.getReferralStats = async (req, res) => {
   try {
