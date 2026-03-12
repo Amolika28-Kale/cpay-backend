@@ -1294,7 +1294,8 @@ exports.updateDepositScreenshot = async (req, res) => {
   }
 };
 
-// ==================== APPROVE DEPOSIT ====================
+// controllers/deposit.controller.js - approveDeposit function
+
 exports.approveDeposit = async (req, res) => {
   console.log("🔴 APPROVE DEPOSIT CALLED for ID:", req.params.id);
   
@@ -1406,7 +1407,7 @@ exports.approveDeposit = async (req, res) => {
       }
     ];
 
-    /* ===== WALLET ACTIVATION LOGIC ===== */
+    /* ===== WALLET ACTIVATION LOGIC - FIXED ===== */
     const now = new Date();
 
     // Check if wallet is already active and not expired
@@ -1421,14 +1422,19 @@ exports.approveDeposit = async (req, res) => {
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 7);
       
+      // ✅ FIX: Calculate limit as INR amount * 10
+      const calculatedLimit = inrAmount * 10; // ₹9500 × 10 = ₹95,000
+      
       user.walletActivated = true;
       user.activationDate = now;
       user.activationExpiryDate = expiryDate;
-      user.dailyAcceptLimit = inrAmount;
+      user.dailyAcceptLimit = calculatedLimit; // Set to ₹95,000 instead of ₹9500
       user.sevenDayTotalAccepted = 0;
       user.sevenDayResetDate = expiryDate;
       
       console.log("✅ Wallet activation fields set");
+      console.log(`   💰 INR Amount: ₹${inrAmount}`);
+      console.log(`   🎯 7-Day Limit: ₹${calculatedLimit} (${inrAmount} × 10)`);
       
       if (!user.activationHistory) {
         user.activationHistory = [];
@@ -1436,7 +1442,105 @@ exports.approveDeposit = async (req, res) => {
       
       user.activationHistory.push({
         date: now,
-        limit: inrAmount,
+        limit: calculatedLimit,
+        amount: deposit.amount,
+        expiryDate: expiryDate,
+        status: 'ACTIVE',
+        calculation: `${inrAmount} × 10 = ${calculatedLimit}`
+      });
+      
+      transactions.push({
+        user: deposit.user,
+        type: "WALLET_ACTIVATION",
+        fromWallet: "USDT",
+        toWallet: "INR",
+        amount: deposit.amount,
+        meta: {
+          type: "FIRST_ACTIVATION",
+          dailyLimit: calculatedLimit,
+          validUntil: expiryDate,
+          action: "New wallet activated for 7 days",
+          inrAmount: inrAmount,
+          calculation: `${inrAmount} × 10 = ${calculatedLimit}`
+        }
+      });
+      
+      console.log(`✅ FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${calculatedLimit}`);
+    }
+    
+    // CASE 2: WALLET ALREADY ACTIVE (Not expired)
+    else if (isWalletActive) {
+      console.log("🎯 CASE 2: WALLET ALREADY ACTIVE - Extending");
+      
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 7);
+      
+      // ✅ FIX: Add to existing limit
+      const additionalLimit = inrAmount * 10;
+      const oldLimit = user.dailyAcceptLimit;
+      const newLimit = oldLimit + additionalLimit;
+      
+      user.dailyAcceptLimit = newLimit;
+      user.activationDate = now;
+      user.activationExpiryDate = expiryDate;
+      user.sevenDayResetDate = expiryDate;
+      
+      console.log("✅ Wallet extension fields set");
+      console.log(`   💰 Previous Limit: ₹${oldLimit}`);
+      console.log(`   💰 Additional: ₹${additionalLimit} (${inrAmount} × 10)`);
+      console.log(`   🎯 New Limit: ₹${newLimit}`);
+      
+      if (!user.activationHistory) user.activationHistory = [];
+      user.activationHistory.push({
+        date: now,
+        limit: newLimit,
+        amount: deposit.amount,
+        expiryDate: expiryDate,
+        status: 'ACTIVE',
+        note: `Extended: ₹${oldLimit} + ₹${additionalLimit} = ₹${newLimit}`
+      });
+      
+      transactions.push({
+        user: deposit.user,
+        type: "WALLET_ACTIVATION",
+        fromWallet: "USDT",
+        toWallet: "INR",
+        amount: deposit.amount,
+        meta: {
+          type: "EXTENDED_ACTIVATION",
+          previousLimit: oldLimit,
+          newLimit: newLimit,
+          additionalLimit: additionalLimit,
+          validUntil: expiryDate,
+          inrAmount: inrAmount
+        }
+      });
+    }
+    
+    // CASE 3: WALLET EXPIRED (Needs re-activation)
+    else {
+      console.log("🎯 CASE 3: WALLET EXPIRED - Reactivating");
+      
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 7);
+      
+      // ✅ FIX: Calculate new limit based on this deposit
+      const newLimit = inrAmount * 10;
+      
+      user.walletActivated = true;
+      user.activationDate = now;
+      user.activationExpiryDate = expiryDate;
+      user.dailyAcceptLimit = newLimit;
+      user.sevenDayTotalAccepted = 0;
+      user.sevenDayResetDate = expiryDate;
+      
+      console.log("✅ Wallet re-activation fields set");
+      console.log(`   🎯 New 7-Day Limit: ₹${newLimit} (${inrAmount} × 10)`);
+      
+      if (!user.activationHistory) user.activationHistory = [];
+      user.activationHistory.push({
+        date: now,
+        limit: newLimit,
         amount: deposit.amount,
         expiryDate: expiryDate,
         status: 'ACTIVE'
@@ -1449,30 +1553,16 @@ exports.approveDeposit = async (req, res) => {
         toWallet: "INR",
         amount: deposit.amount,
         meta: {
-          type: "FIRST_ACTIVATION",
-          dailyLimit: inrAmount,
+          type: "REACTIVATION",
+          dailyLimit: newLimit,
           validUntil: expiryDate,
-          action: "New wallet activated for 7 days",
           inrAmount: inrAmount
         }
       });
-      
-      console.log(`✅ FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${inrAmount}`);
-    }
-    
-    // CASE 2: WALLET ALREADY ACTIVE (Not expired)
-    else if (isWalletActive) {
-      console.log("🎯 CASE 2: WALLET ALREADY ACTIVE - Extending");
-      // ... existing code ...
-    }
-    
-    // CASE 3: WALLET EXPIRED (Needs re-activation)
-    else {
-      console.log("🎯 CASE 3: WALLET EXPIRED - Reactivating");
-      // ... existing code ...
     }
 
     console.log("💾 Saving user with walletActivated =", user.walletActivated);
+    console.log("💰 dailyAcceptLimit =", user.dailyAcceptLimit);
     await user.save({ session });
 
     await Transaction.insertMany(transactions, { session });
@@ -1483,13 +1573,15 @@ exports.approveDeposit = async (req, res) => {
     console.log(`✅ Deposit ${deposit._id} approved for user ${user.userId}`);
     console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
     console.log(`   Wallet Activated: ${user.walletActivated}`);
+    console.log(`   7-Day Limit: ₹${user.dailyAcceptLimit}`);
 
     res.json({ 
       message: "Deposit approved successfully",
       amount: deposit.amount,
       inrAmount: inrAmount,
       walletActivated: user.walletActivated,
-      dailyLimit: user.dailyAcceptLimit
+      dailyLimit: user.dailyAcceptLimit,
+      calculation: `₹${inrAmount} × 10 = ₹${user.dailyAcceptLimit}`
     });
 
   } catch (err) {
