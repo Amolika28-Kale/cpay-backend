@@ -123,6 +123,8 @@ router.post("/accept", userAuth, scannerController.acceptRequest);
 router.post("/submit-payment", userAuth, upload.single("screenshot"), scannerController.submitPayment);
 router.post("/confirm", userAuth, scannerController.confirmFinalPayment);
 router.post("/self-pay", userAuth, scannerController.selfPay);
+// Cancel request
+router.delete("/cancel/:scannerId", userAuth, scannerController.cancelRequest);
 
 /* ================= SCREENSHOT MANAGEMENT ROUTES ================= */
 router.get("/screenshots/:scannerId", userAuth, scannerController.getScannerScreenshots);

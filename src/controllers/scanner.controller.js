@@ -1142,6 +1142,16 @@ exports.requestToPay = async (req, res) => {
 
     const requestAmount = Number(amount);
 
+     // ✅ ADD THIS - MAX LIMIT CHECK (₹10,000)
+    if (requestAmount > 10000) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(400).json({ 
+        message: "Maximum request amount is ₹10,000 per transaction",
+        maxLimit: 10000,
+        minLimit: 1
+      });
+    }
+
     // ========== 3. FILE VALIDATION ==========
     if (!req.file) {
       return res.status(400).json({ message: "QR code image is required" });
@@ -1460,7 +1470,15 @@ exports.acceptRequest = async (req, res) => {
         code: "ALREADY_ACCEPTED"
       });
     }
-    
+     // ✅ ADD THIS - MAX LIMIT CHECK FOR ACCEPTANCE
+    if (scanner.amount > 10000) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ 
+        message: "Cannot accept requests above ₹10,000",
+        maxLimit: 10000
+      });
+    }
     // Check if user is trying to accept their own request
     if (scanner.user && scanner.user.toString() === userId) {
       await session.abortTransaction();
@@ -2386,6 +2404,65 @@ exports.getAllScanners = async (req, res) => {
 
     res.json(allScanners);
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+/* =========================================================
+   10️⃣ CANCEL REQUEST (User cancels their own ACTIVE request)
+========================================================= */
+exports.cancelRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { scannerId } = req.params;
+    const userId = req.user.id;
+
+    // Find the scanner - only if it's ACTIVE and belongs to this user
+    const scanner = await Scanner.findOne({ 
+      _id: scannerId,
+      user: userId,
+      status: "ACTIVE",
+      acceptedBy: null // Not accepted by anyone
+    }).session(session);
+
+    if (!scanner) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ 
+        message: "Request not found or cannot be cancelled" 
+      });
+    }
+
+    // Update status to EXPIRED
+    scanner.status = "EXPIRED";
+    await scanner.save({ session });
+
+    // Optional: Refund the amount to user's INR wallet? 
+    // (if amount was deducted at creation time)
+    // Uncomment if you deduct balance at creation
+    /*
+    const inrWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
+    if (inrWallet) {
+      inrWallet.balance += scanner.amount;
+      await inrWallet.save({ session });
+    }
+    */
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ 
+      message: "Request cancelled successfully",
+      scannerId: scanner._id
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Cancel request error:", err);
     res.status(500).json({ message: err.message });
   }
 };
