@@ -103,7 +103,7 @@ exports.login = async (req, res) => {
   try {
     let { adminId, pin } = req.body;
 
-    console.log("👤 Admin login attempt:", { adminId });
+    // console.log("👤 Admin login attempt:", { adminId });
 
     if (!adminId || !pin) {
       return res.status(400).json({ 
@@ -166,7 +166,7 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Admin login error:", err);
+    // console.error("❌ Admin login error:", err);
     res.status(500).json({ 
       success: false,
       message: err.message 
@@ -222,7 +222,7 @@ exports.createAdmin = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Create admin error:", err);
+    // console.error("❌ Create admin error:", err);
     res.status(500).json({ 
       success: false,
       message: err.message 
@@ -359,26 +359,26 @@ exports.seedAdmin = async () => {
         permissions: ['users', 'scanners']
       });
 
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('✅ ADMINS SEEDED SUCCESSFULLY!');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 Admin ID: 777777 | PIN: 123456 | Role: Admin');
-      console.log('📋 Admin ID: 888888 | PIN: 123456 | Role: Finance Admin');
-      console.log('📋 Admin ID: 999999 | PIN: 123456 | Role: Support Admin');
+      // console.log('━━━━━━━━━━━━━━━━━━━━━━━');
+      // console.log('✅ ADMINS SEEDED SUCCESSFULLY!');
+      // console.log('━━━━━━━━━━━━━━━━━━━━━━━');
+      // console.log('📋 Admin ID: 777777 | PIN: 123456 | Role: Admin');
+      // console.log('📋 Admin ID: 888888 | PIN: 123456 | Role: Finance Admin');
+      // console.log('📋 Admin ID: 999999 | PIN: 123456 | Role: Support Admin');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━');
     } else {
-      console.log('✅ Admins already exist');
+      // console.log('✅ Admins already exist');
       
       // Show existing admins
       const admins = await Admin.find().select('-pin');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 Existing Admins:');
+      // console.log('━━━━━━━━━━━━━━━━━━━━━━━');
+      // console.log('📋 Existing Admins:');
       admins.forEach(admin => {
-        console.log(`   ${admin.adminId} - ${admin.name || 'Admin'} (${admin.role})`);
+        // console.log(`   ${admin.adminId} - ${admin.name || 'Admin'} (${admin.role})`);
       });
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━');
+      // console.log('━━━━━━━━━━━━━━━━━━━━━━━');
     }
   } catch (err) {
-    console.error('❌ Error seeding admin:', err);
+    // console.error('❌ Error seeding admin:', err);
   }
 };

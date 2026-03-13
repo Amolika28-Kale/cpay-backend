@@ -905,9 +905,9 @@ exports.register = async (req, res) => {
     let autoRequest = null;
     try {
       autoRequest = await AutoRequestService.createFirstAutoRequestForUser(user._id, 1000, session);
-      console.log(`✅ First auto request created for new user: ${user.userId}`);
+      // console.log(`✅ First auto request created for new user: ${user.userId}`);
     } catch (autoRequestError) {
-      console.error("❌ Failed to create auto request for new user:", autoRequestError);
+      // console.error("❌ Failed to create auto request for new user:", autoRequestError);
     }
 
     // ✅ 12. Commit transaction
@@ -1452,7 +1452,7 @@ exports.getReferralStats = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Referral Stats Error:", err);
+    // console.error("Referral Stats Error:", err);
     res.status(500).json({ message: err.message });
   }
 };

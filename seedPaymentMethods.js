@@ -32,6 +32,6 @@ mongoose.connect(process.env.MONGO_URI)
     process.exit();
   })
   .catch(err => {
-    console.error("❌ Error seeding payment methods:", err);
+    // console.error("❌ Error seeding payment methods:", err);
     process.exit(1);
   });

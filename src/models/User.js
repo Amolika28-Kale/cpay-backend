@@ -308,6 +308,8 @@ const userSchema = new mongoose.Schema({
 
   firstDepositCompleted: { type: Boolean, default: false },
   firstAcceptCompleted: { type: Boolean, default: false },
+  totalPayRequests: { type: Number, default: 0 },
+totalAcceptedRequests: { type: Number, default: 0 },
 
   referralCode: { type: String, unique: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },

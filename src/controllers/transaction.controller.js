@@ -92,7 +92,7 @@ exports.getTodayTeamStats = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Error getting today's team stats:", err);
+    // console.error("❌ Error getting today's team stats:", err);
     res.status(500).json({ 
       success: false,
       message: "Server error",

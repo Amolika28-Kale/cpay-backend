@@ -1125,14 +1125,13 @@ exports.requestToPay = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
     
-    // Check if user can create request
-    if (user.firstDepositCompleted && !user.firstAcceptCompleted) {
-      // Clean up uploaded file
-      if (req.file) fs.unlinkSync(req.file.path);
-      return res.status(403).json({ 
-        message: "You must accept at least one payment request before creating your own" 
-      });
-    }
+if ((user.totalPayRequests || 0) >= ((user.totalAcceptedRequests || 0) + 1)) {
+  if (req.file) fs.unlinkSync(req.file.path);
+
+  return res.status(403).json({
+    message: "You must accept one payment request before creating a new Pay My Bill request"
+  });
+}
 
     // ========== 2. AMOUNT VALIDATION ==========
     if (!amount || amount <= 0) {
@@ -1205,15 +1204,19 @@ exports.requestToPay = async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
-    const scanner = await Scanner.create({
-      user: userId,
-      amount: requestAmount,
-      image: `/uploads/${req.file.filename}`,
-      upiLink: req.body.upiLink || "",
-      status: "ACTIVE",
-      expiresAt: expiresAt,
-      isAutoRequest: false
-    });
+const scanner = await Scanner.create({
+  user: userId,
+  amount: requestAmount,
+  image: `/uploads/${req.file.filename}`,
+  upiLink: req.body.upiLink || "",
+  status: "ACTIVE",
+  expiresAt: expiresAt,
+  isAutoRequest: false
+});
+
+// Update pay request counter
+user.totalPayRequests = (user.totalPayRequests || 0) + 1;
+await user.save();
 
     // ========== 6. SUCCESS RESPONSE ==========
     res.status(201).json({
@@ -1231,11 +1234,11 @@ exports.requestToPay = async (req, res) => {
       try {
         fs.unlinkSync(req.file.path);
       } catch (unlinkErr) {
-        console.error("Error deleting file:", unlinkErr);
+        // console.error("Error deleting file:", unlinkErr);
       }
     }
     
-    console.error("❌ Request to pay error:", err);
+    // console.error("❌ Request to pay error:", err);
     res.status(500).json({ 
       message: err.message || "Failed to create payment request" 
     });
@@ -1360,7 +1363,7 @@ exports.getActiveRequests = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Error in getActiveRequests:", err);
+    // console.error("❌ Error in getActiveRequests:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1521,12 +1524,12 @@ exports.acceptRequest = async (req, res) => {
     scanner.acceptedAt = new Date();
     await scanner.save({ session });
 
-    // Update user stats
-    user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
-    
-    if (!user.firstAcceptCompleted) {
-      user.firstAcceptCompleted = true;
-    }
+user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
+user.totalAcceptedRequests = (user.totalAcceptedRequests || 0) + 1;
+
+if (!user.firstAcceptCompleted) {
+  user.firstAcceptCompleted = true;
+}
     
     await user.save({ session });
 
@@ -1548,7 +1551,7 @@ exports.acceptRequest = async (req, res) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Accept request error:", err);
+    // console.error("Accept request error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1732,7 +1735,7 @@ exports.updateScreenshot = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error updating screenshot:", err);
+    // console.error("Error updating screenshot:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1771,7 +1774,7 @@ exports.getScannerScreenshots = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error fetching screenshots:", err);
+    // console.error("Error fetching screenshots:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1818,7 +1821,7 @@ exports.deleteScreenshot = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error deleting screenshot:", err);
+    // console.error("Error deleting screenshot:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1909,13 +1912,13 @@ exports.confirmFinalPayment = async (req, res) => {
     try {
       await ReferralService.processTeamCashback(userId, creatorCashback, 'CREATOR_CASHBACK', scannerId);
     } catch (err) {
-      console.error("Error processing team cashback for creator:", err);
+      // console.error("Error processing team cashback for creator:", err);
     }
     
     try {
       await ReferralService.processTeamCashback(acceptorId, acceptorCashback, 'ACCEPTOR_CASHBACK', scannerId);
     } catch (err) {
-      console.error("Error processing team cashback for acceptor:", err);
+      // console.error("Error processing team cashback for acceptor:", err);
     }
     
     res.json({ 
@@ -2202,7 +2205,7 @@ exports.activateWallet = async (req, res) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Wallet activation error:", err);
+    // console.error("Wallet activation error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -2271,7 +2274,7 @@ exports.checkWalletActivation = async (req, res) => {
 
     // Check if activation expired (7 days)
     if (user.walletActivated && user.isActivationExpired()) {
-      console.log("7 days completed - resetting activation");
+      // console.log("7 days completed - resetting activation");
       user.walletActivated = false;
       user.sevenDayTotalAccepted = 0;
       user.todayAcceptedCount = 0;
@@ -2307,7 +2310,7 @@ exports.checkWalletActivation = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Check activation error:", err);
+    // console.error("Check activation error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -2462,7 +2465,7 @@ exports.cancelRequest = async (req, res) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Cancel request error:", err);
+    // console.error("Cancel request error:", err);
     res.status(500).json({ message: err.message });
   }
 };

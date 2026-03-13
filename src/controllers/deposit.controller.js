@@ -1289,7 +1289,7 @@ exports.updateDepositScreenshot = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Update deposit screenshot error:", err);
+    // console.error("Update deposit screenshot error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -1297,14 +1297,14 @@ exports.updateDepositScreenshot = async (req, res) => {
 // controllers/deposit.controller.js - approveDeposit function
 
 exports.approveDeposit = async (req, res) => {
-  console.log("🔴 APPROVE DEPOSIT CALLED for ID:", req.params.id);
+  // console.log("🔴 APPROVE DEPOSIT CALLED for ID:", req.params.id);
   
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const deposit = await Deposit.findById(req.params.id).session(session);
-    console.log("📦 Deposit found:", deposit?._id, "Status:", deposit?.status, "Amount:", deposit?.amount);
+    // console.log("📦 Deposit found:", deposit?._id, "Status:", deposit?.status, "Amount:", deposit?.amount);
 
     if (!deposit) {
       throw new Error("Deposit not found");
@@ -1316,20 +1316,20 @@ exports.approveDeposit = async (req, res) => {
 
     deposit.status = "approved";
     await deposit.save({ session });
-    console.log("✅ Deposit status updated to approved");
+    // console.log("✅ Deposit status updated to approved");
 
     const user = await User.findById(deposit.user).session(session);
-    console.log("👤 User found:", user?.userId, user?._id);
+    // console.log("👤 User found:", user?.userId, user?._id);
     
     if (!user) {
       throw new Error("User not found");
     }
     
     const isFirstDepositEver = !user.firstDepositCompleted;
-    console.log("🎯 isFirstDepositEver:", isFirstDepositEver);
+    // console.log("🎯 isFirstDepositEver:", isFirstDepositEver);
     
     if (isFirstDepositEver) {
-      console.log("🎯 THIS IS FIRST DEPOSIT - WILL ACTIVATE WALLET");
+      // console.log("🎯 THIS IS FIRST DEPOSIT - WILL ACTIVATE WALLET");
       user.firstDepositCompleted = true;
     }
 
@@ -1345,18 +1345,18 @@ exports.approveDeposit = async (req, res) => {
         type: "USDT",
         balance: 0
       });
-      console.log("💰 USDT wallet created");
+      // console.log("💰 USDT wallet created");
     }
 
-    console.log("💰 USDT old balance:", usdtWallet.balance);
+    // console.log("💰 USDT old balance:", usdtWallet.balance);
     usdtWallet.balance += deposit.amount;
     await usdtWallet.save({ session });
-    console.log("💰 USDT new balance:", usdtWallet.balance);
+    // console.log("💰 USDT new balance:", usdtWallet.balance);
 
     /* ===== INR CONVERSION ===== */
     const conversionRate = 95;
     const inrAmount = deposit.amount * conversionRate;
-    console.log("💱 INR amount:", inrAmount);
+    // console.log("💱 INR amount:", inrAmount);
 
     let inrWallet = await Wallet.findOne({
       user: deposit.user,
@@ -1369,13 +1369,13 @@ exports.approveDeposit = async (req, res) => {
         type: "INR",
         balance: 0
       });
-      console.log("💰 INR wallet created");
+      // console.log("💰 INR wallet created");
     }
 
-    console.log("💰 INR old balance:", inrWallet.balance);
+    // console.log("💰 INR old balance:", inrWallet.balance);
     inrWallet.balance += inrAmount;
     await inrWallet.save({ session });
-    console.log("💰 INR new balance:", inrWallet.balance);
+    // console.log("💰 INR new balance:", inrWallet.balance);
 
     // Prepare transactions array
     const transactions = [
@@ -1417,7 +1417,7 @@ exports.approveDeposit = async (req, res) => {
 
     // CASE 1: FIRST DEPOSIT EVER
     if (isFirstDepositEver) {
-      console.log("🎯 CASE 1: FIRST DEPOSIT EVER - Activating wallet");
+      // console.log("🎯 CASE 1: FIRST DEPOSIT EVER - Activating wallet");
       
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 7);
@@ -1432,9 +1432,9 @@ exports.approveDeposit = async (req, res) => {
       user.sevenDayTotalAccepted = 0;
       user.sevenDayResetDate = expiryDate;
       
-      console.log("✅ Wallet activation fields set");
-      console.log(`   💰 INR Amount: ₹${inrAmount}`);
-      console.log(`   🎯 7-Day Limit: ₹${calculatedLimit} (${inrAmount} × 10)`);
+      // console.log("✅ Wallet activation fields set");
+      // console.log(`   💰 INR Amount: ₹${inrAmount}`);
+      // console.log(`   🎯 7-Day Limit: ₹${calculatedLimit} (${inrAmount} × 10)`);
       
       if (!user.activationHistory) {
         user.activationHistory = [];
@@ -1465,12 +1465,12 @@ exports.approveDeposit = async (req, res) => {
         }
       });
       
-      console.log(`✅ FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${calculatedLimit}`);
+      // console.log(`✅ FIRST DEPOSIT: Wallet activated until ${expiryDate.toLocaleDateString()} with limit ₹${calculatedLimit}`);
     }
     
     // CASE 2: WALLET ALREADY ACTIVE (Not expired)
     else if (isWalletActive) {
-      console.log("🎯 CASE 2: WALLET ALREADY ACTIVE - Extending");
+      // console.log("🎯 CASE 2: WALLET ALREADY ACTIVE - Extending");
       
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 7);
@@ -1485,10 +1485,10 @@ exports.approveDeposit = async (req, res) => {
       user.activationExpiryDate = expiryDate;
       user.sevenDayResetDate = expiryDate;
       
-      console.log("✅ Wallet extension fields set");
-      console.log(`   💰 Previous Limit: ₹${oldLimit}`);
-      console.log(`   💰 Additional: ₹${additionalLimit} (${inrAmount} × 10)`);
-      console.log(`   🎯 New Limit: ₹${newLimit}`);
+      // console.log("✅ Wallet extension fields set");
+      // console.log(`   💰 Previous Limit: ₹${oldLimit}`);
+      // console.log(`   💰 Additional: ₹${additionalLimit} (${inrAmount} × 10)`);
+      // console.log(`   🎯 New Limit: ₹${newLimit}`);
       
       if (!user.activationHistory) user.activationHistory = [];
       user.activationHistory.push({
@@ -1519,7 +1519,7 @@ exports.approveDeposit = async (req, res) => {
     
     // CASE 3: WALLET EXPIRED (Needs re-activation)
     else {
-      console.log("🎯 CASE 3: WALLET EXPIRED - Reactivating");
+      // console.log("🎯 CASE 3: WALLET EXPIRED - Reactivating");
       
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 7);
@@ -1534,8 +1534,8 @@ exports.approveDeposit = async (req, res) => {
       user.sevenDayTotalAccepted = 0;
       user.sevenDayResetDate = expiryDate;
       
-      console.log("✅ Wallet re-activation fields set");
-      console.log(`   🎯 New 7-Day Limit: ₹${newLimit} (${inrAmount} × 10)`);
+      // console.log("✅ Wallet re-activation fields set");
+      // console.log(`   🎯 New 7-Day Limit: ₹${newLimit} (${inrAmount} × 10)`);
       
       if (!user.activationHistory) user.activationHistory = [];
       user.activationHistory.push({
@@ -1561,8 +1561,8 @@ exports.approveDeposit = async (req, res) => {
       });
     }
 
-    console.log("💾 Saving user with walletActivated =", user.walletActivated);
-    console.log("💰 dailyAcceptLimit =", user.dailyAcceptLimit);
+    // console.log("💾 Saving user with walletActivated =", user.walletActivated);
+    // console.log("💰 dailyAcceptLimit =", user.dailyAcceptLimit);
     await user.save({ session });
 
     await Transaction.insertMany(transactions, { session });
@@ -1570,10 +1570,10 @@ exports.approveDeposit = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    console.log(`✅ Deposit ${deposit._id} approved for user ${user.userId}`);
-    console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
-    console.log(`   Wallet Activated: ${user.walletActivated}`);
-    console.log(`   7-Day Limit: ₹${user.dailyAcceptLimit}`);
+    // console.log(`✅ Deposit ${deposit._id} approved for user ${user.userId}`);
+    // console.log(`   USDT: ${deposit.amount} → INR: ₹${inrAmount}`);
+    // console.log(`   Wallet Activated: ${user.walletActivated}`);
+    // console.log(`   7-Day Limit: ₹${user.dailyAcceptLimit}`);
 
     res.json({ 
       message: "Deposit approved successfully",
@@ -1585,7 +1585,7 @@ exports.approveDeposit = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ APPROVE DEPOSIT ERROR:", err);
+    // console.error("❌ APPROVE DEPOSIT ERROR:", err);
     await session.abortTransaction();
     session.endSession();
     res.status(500).json({ message: err.message });
@@ -1610,7 +1610,7 @@ exports.rejectDeposit = async (req, res) => {
     deposit.rejectReason = reason || "Transaction verification failed. Please submit valid proof.";
     await deposit.save();
 
-    console.log(`❌ Deposit ${deposit._id} rejected for user ${deposit.user?.userId}`);
+    // console.log(`❌ Deposit ${deposit._id} rejected for user ${deposit.user?.userId}`);
 
     res.json({ 
       message: "Deposit rejected",
@@ -1619,7 +1619,7 @@ exports.rejectDeposit = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Reject deposit error:", err);
+    // console.error("Reject deposit error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -1634,7 +1634,7 @@ exports.getMyDeposits = async (req, res) => {
     // ✅ FIX: Always return an array
     res.json(deposits || []);
   } catch (err) {
-    console.error("Get my deposits error:", err);
+    // console.error("Get my deposits error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -1657,7 +1657,7 @@ exports.getDepositById = async (req, res) => {
 
     res.json(deposit);
   } catch (err) {
-    console.error("Get deposit by ID error:", err);
+    // console.error("Get deposit by ID error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -1672,7 +1672,7 @@ exports.getAllDeposits = async (req, res) => {
 
     res.json(deposits);
   } catch (err) {
-    console.error("Get all deposits error:", err);
+    // console.error("Get all deposits error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

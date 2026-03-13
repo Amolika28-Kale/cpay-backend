@@ -185,7 +185,7 @@ exports.getSystemStats = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Admin stats error:", err);
+    // console.error("Admin stats error:", err);
     res.status(500).json({ 
       success: false, 
       message: "Server error",
@@ -267,7 +267,7 @@ exports.getUserDetails = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("User details error:", err);
+    // console.error("User details error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

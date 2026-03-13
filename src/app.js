@@ -91,7 +91,7 @@ mongoose.connect(process.env.MONGO_URI, {
   
   // ✅ Start Auto Request Service after database connection
   AutoRequestService.startScheduledJobs();
-  console.log('✅ Auto Request Scheduler Started');
+  // console.log('✅ Auto Request Scheduler Started');
 })
 .catch(err => {
   console.error('❌ MongoDB Connection Error:', err);

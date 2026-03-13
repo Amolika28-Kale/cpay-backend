@@ -87,7 +87,7 @@ class ReferralService {
         level++;
       }
     } catch (error) {
-      console.error("Error processing team cashback:", error);
+      // console.error("Error processing team cashback:", error);
     }
   }
 
@@ -134,7 +134,7 @@ class ReferralService {
 
       return teamStats;
     } catch (error) {
-      console.error("Error getting team cashback summary:", error);
+      // console.error("Error getting team cashback summary:", error);
       return null;
     }
   }
@@ -174,7 +174,7 @@ class ReferralService {
 
       return tree;
     } catch (error) {
-      console.error("Error getting team tree:", error);
+      // console.error("Error getting team tree:", error);
       return null;
     }
   }

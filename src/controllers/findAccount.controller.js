@@ -58,7 +58,7 @@ exports.findAccount = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Find Account Error:", err);
+    // console.error("Find Account Error:", err);
     res.status(500).json({ 
       success: false, 
       message: "Server error. Please try again." 
@@ -123,7 +123,7 @@ exports.verifyOtpAndGetUserId = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Verify OTP Error:", err);
+    // console.error("Verify OTP Error:", err);
     res.status(500).json({ 
       success: false, 
       message: "Server error. Please try again." 
@@ -180,7 +180,7 @@ exports.requestPinReset = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("PIN Reset Request Error:", err);
+    // console.error("PIN Reset Request Error:", err);
     res.status(500).json({ 
       success: false, 
       message: "Server error. Please try again." 
@@ -249,7 +249,7 @@ exports.resetPin = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Reset PIN Error:", err);
+    // console.error("Reset PIN Error:", err);
     res.status(500).json({ 
       success: false, 
       message: "Server error. Please try again." 

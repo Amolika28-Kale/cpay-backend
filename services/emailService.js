@@ -108,7 +108,7 @@ const generateOtp = () => {
 
 const sendOtpEmail = async ({ email, otp, type = 'register' }) => {
   try {
-    console.log(`📧 Sending email to: ${email}, Type: ${type}`);
+    // console.log(`📧 Sending email to: ${email}, Type: ${type}`);
 
     let subject, message;
     
@@ -197,11 +197,11 @@ const sendOtpEmail = async ({ email, otp, type = 'register' }) => {
       }
     );
 
-    console.log(`✅ Email sent to ${email}`);
+    // console.log(`✅ Email sent to ${email}`);
     return true;
 
   } catch (err) {
-    console.error("Email Error:", err.message);
+    // console.error("Email Error:", err.message);
     throw err;
   }
 };

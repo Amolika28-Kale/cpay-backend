@@ -140,7 +140,7 @@ exports.transferCashback = async (req, res) => {
       transferredAmount: amount 
     });
   } catch (err) {
-    console.error("Transfer cashback error:", err);
+    // console.error("Transfer cashback error:", err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -151,7 +151,7 @@ exports.getTeamCashbackSummary = async (req, res) => {
     const summary = await ReferralService.getTeamCashbackSummary(req.user.id);
     res.json(summary || {});
   } catch (err) {
-    console.error("Team cashback summary error:", err);
+    // console.error("Team cashback summary error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
