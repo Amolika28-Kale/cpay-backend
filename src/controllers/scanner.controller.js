@@ -1125,7 +1125,9 @@ exports.requestToPay = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
     
-if ((user.totalPayRequests || 0) >= ((user.totalAcceptedRequests || 0) + 1)) {
+// First request free for new user
+if (user.totalPayRequests > 0 && user.totalPayRequests >= user.totalAcceptedRequests + 1) {
+
   if (req.file) fs.unlinkSync(req.file.path);
 
   return res.status(403).json({
