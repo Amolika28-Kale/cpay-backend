@@ -255,5 +255,6 @@ scannerSchema.index({ expiresAt: 1, status: 1 });
 scannerSchema.index({ isAutoRequest: 1, status: 1 });
 scannerSchema.index({ user: 1 });
 scannerSchema.index({ createdFor: 1 });
+scannerSchema.index({ status: 1, expiresAt: 1 }); // हा पण add करा
 
 module.exports = mongoose.model("Scanner", scannerSchema);

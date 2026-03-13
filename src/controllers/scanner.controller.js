@@ -1234,40 +1234,104 @@ exports.requestToPay = async (req, res) => {
 /* =========================================================
    2️⃣ GET ALL ACTIVE REQUESTS
 ========================================================= */
+// exports.getActiveRequests = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+
+//     // Get user for 7-day limit check
+//     const user = await User.findById(userId);
+    
+//     // Check 7-day reset
+//     user.checkAndResetSevenDay();
+
+//     const requests = await Scanner.find({
+//       $or: [
+//         // System requests
+//         {
+//           user: null,
+//           status: "ACTIVE",
+//           isAutoRequest: true,
+//           expiresAt: { $gt: new Date() }
+//         },
+//         // Other users active requests
+//         {
+//           user: { $nin: [userId, null] },
+//           status: "ACTIVE",
+//           expiresAt: { $gt: new Date() }
+//         },
+//         // Requests accepted by this user (any status except COMPLETED)
+//         {
+//           acceptedBy: userId,
+//           status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] }
+//         },
+//         // ✅ FIXED: OWN REQUESTS - सगळे दाखवा (ACTIVE, ACCEPTED, PAYMENT_SUBMITTED, COMPLETED)
+//         {
+//           user: userId
+//           // काहीही condition नको - सगळे requests दाखवा
+//         }
+//       ]
+//     })
+//     .populate("user", "name userId")
+//     .populate("acceptedBy", "name userId")
+//     .sort({ createdAt: -1 });
+
+//     // ✅ Add remaining limit info to response headers or separate field
+//     res.json({
+//       requests,
+//       limitInfo: {
+//         dailyLimit: user.dailyAcceptLimit,
+//         sevenDayTotalAccepted: user.sevenDayTotalAccepted,
+//         remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted,
+//         remainingDays: user.getRemainingDays()
+//       }
+//     });
+
+//   } catch (err) {
+//     console.error("❌ Error in getActiveRequests:", err);
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+
+/* =========================================================
+   2️⃣ GET ALL ACTIVE REQUESTS (UPDATED - Hide accepted requests)
+========================================================= */
 exports.getActiveRequests = async (req, res) => {
   try {
     const userId = req.user.id;
 
     // Get user for 7-day limit check
     const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
     
     // Check 7-day reset
     user.checkAndResetSevenDay();
 
     const requests = await Scanner.find({
       $or: [
-        // System requests
+        // ✅ System requests - फक्त ACTIVE (ACCEPTED नाही)
         {
           user: null,
-          status: "ACTIVE",
+          status: "ACTIVE",  // Only ACTIVE, not ACCEPTED
           isAutoRequest: true,
           expiresAt: { $gt: new Date() }
         },
-        // Other users active requests
+        // ✅ Other users requests - फक्त ACTIVE (ACCEPTED नाही)
         {
           user: { $nin: [userId, null] },
-          status: "ACTIVE",
+          status: "ACTIVE",  // Only ACTIVE, not ACCEPTED
           expiresAt: { $gt: new Date() }
         },
-        // Requests accepted by this user (any status except COMPLETED)
+        // ✅ Requests accepted by this user (सगळे status दाखवा - फक्त या यूजरला)
         {
           acceptedBy: userId,
           status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] }
         },
-        // ✅ FIXED: OWN REQUESTS - सगळे दाखवा (ACTIVE, ACCEPTED, PAYMENT_SUBMITTED, COMPLETED)
+        // ✅ OWN REQUESTS - सगळे status दाखवा
         {
           user: userId
-          // काहीही condition नको - सगळे requests दाखवा
         }
       ]
     })
@@ -1275,14 +1339,13 @@ exports.getActiveRequests = async (req, res) => {
     .populate("acceptedBy", "name userId")
     .sort({ createdAt: -1 });
 
-    // ✅ Add remaining limit info to response headers or separate field
     res.json({
       requests,
       limitInfo: {
-        dailyLimit: user.dailyAcceptLimit,
-        sevenDayTotalAccepted: user.sevenDayTotalAccepted,
-        remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted,
-        remainingDays: user.getRemainingDays()
+        dailyLimit: user.dailyAcceptLimit || 0,
+        sevenDayTotalAccepted: user.sevenDayTotalAccepted || 0,
+        remaining: (user.dailyAcceptLimit || 0) - (user.sevenDayTotalAccepted || 0),
+        remainingDays: user.getRemainingDays() || 0
       }
     });
 
@@ -1292,65 +1355,167 @@ exports.getActiveRequests = async (req, res) => {
   }
 };
 
+
+  //  3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
+// exports.acceptRequest = async (req, res) => {
+//   try {
+//     const { scannerId } = req.body;
+//     const userId = req.user.id;
+
+//     const user = await User.findById(userId);
+//     const scanner = await Scanner.findById(scannerId);
+    
+//     if (!user) return res.status(404).json({ message: "User not found" });
+//     if (!scanner) return res.status(404).json({ message: "Scanner not found" });
+    
+//     // Check if wallet is activated
+//     if (!user.walletActivated) {
+//       return res.status(400).json({ message: "Please activate your wallet first" });
+//     }
+    
+//     // Check if activation expired (7 days)
+//     if (user.isActivationExpired()) {
+//       user.walletActivated = false;
+//       await user.save();
+//       return res.status(400).json({ message: "Wallet activation expired. Please activate again." });
+//     }
+    
+//     // Check 7-day limit
+//     user.checkAndResetSevenDay();
+    
+//     // ✅ FIX: Check if amount exceeds remaining 7-day limit
+//     // BUT DO NOT DEDUCT YET - only check
+//     if (user.sevenDayTotalAccepted + scanner.amount > user.dailyAcceptLimit) {
+//       return res.status(400).json({ 
+//         message: "7-day amount limit exceeded",
+//         remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted
+//       });
+//     }
+
+//     // ✅ UPDATE SCANNER ONLY - NO 7-DAY DEDUCTION
+//     scanner.status = "ACCEPTED";
+//     scanner.acceptedBy = userId;
+//     scanner.acceptedAt = new Date();
+//     await scanner.save();
+
+//     // ✅ DO NOT UPDATE 7-DAY TOTAL HERE - REMOVED THIS LINE
+//     // user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount; ❌ REMOVED
+    
+//     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
+    
+//     if (!user.firstAcceptCompleted) {
+//       user.firstAcceptCompleted = true;
+//     }
+    
+//     await user.save();
+
+//     // ✅ If it's an AUTO REQUEST, schedule auto-confirm
+//     let autoConfirmMessage = null;
+//     if (scanner.isAutoRequest) {
+//       AutoRequestService.handleAcceptedRequest(scannerId);
+//       autoConfirmMessage = "Auto request will be confirmed in 1 minute after proof submission.";
+//     }
+
+//     res.json({ 
+//       message: "Request accepted successfully",
+//       info: autoConfirmMessage || "Balance will be deducted after transaction completion"
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
 /* =========================================================
-   3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
-========================================================= */
-/* =========================================================
-   3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
+   3️⃣ ACCEPT REQUEST (WITH CONCURRENCY CONTROL)
 ========================================================= */
 exports.acceptRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { scannerId } = req.body;
     const userId = req.user.id;
 
-    const user = await User.findById(userId);
-    const scanner = await Scanner.findById(scannerId);
+    // Get user
+    const user = await User.findById(userId).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: "User not found" });
+    }
     
-    if (!user) return res.status(404).json({ message: "User not found" });
-    if (!scanner) return res.status(404).json({ message: "Scanner not found" });
+    // ✅ CRITICAL: फक्त ACTIVE आणि नॉन-एक्सपायर्ड requests शोधा
+    const scanner = await Scanner.findOne({ 
+      _id: scannerId, 
+      status: "ACTIVE",  // Only ACTIVE requests can be accepted
+      expiresAt: { $gt: new Date() } // Not expired
+    }).session(session);
+    
+    if (!scanner) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ 
+        message: "This request has already been accepted by someone else or has expired",
+        code: "ALREADY_ACCEPTED"
+      });
+    }
+    
+    // Check if user is trying to accept their own request
+    if (scanner.user && scanner.user.toString() === userId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: "You cannot accept your own request" });
+    }
     
     // Check if wallet is activated
     if (!user.walletActivated) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: "Please activate your wallet first" });
     }
     
     // Check if activation expired (7 days)
     if (user.isActivationExpired()) {
       user.walletActivated = false;
-      await user.save();
+      await user.save({ session });
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: "Wallet activation expired. Please activate again." });
     }
     
     // Check 7-day limit
     user.checkAndResetSevenDay();
     
-    // ✅ FIX: Check if amount exceeds remaining 7-day limit
-    // BUT DO NOT DEDUCT YET - only check
+    // Check if amount exceeds remaining 7-day limit
     if (user.sevenDayTotalAccepted + scanner.amount > user.dailyAcceptLimit) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ 
         message: "7-day amount limit exceeded",
         remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted
       });
     }
 
-    // ✅ UPDATE SCANNER ONLY - NO 7-DAY DEDUCTION
+    // ✅ UPDATE SCANNER - Mark as accepted
     scanner.status = "ACCEPTED";
     scanner.acceptedBy = userId;
     scanner.acceptedAt = new Date();
-    await scanner.save();
+    await scanner.save({ session });
 
-    // ✅ DO NOT UPDATE 7-DAY TOTAL HERE - REMOVED THIS LINE
-    // user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount; ❌ REMOVED
-    
+    // Update user stats
     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
     
     if (!user.firstAcceptCompleted) {
       user.firstAcceptCompleted = true;
     }
     
-    await user.save();
+    await user.save({ session });
 
-    // ✅ If it's an AUTO REQUEST, schedule auto-confirm
+    await session.commitTransaction();
+    session.endSession();
+
+    // If it's an AUTO REQUEST, schedule auto-confirm
     let autoConfirmMessage = null;
     if (scanner.isAutoRequest) {
       AutoRequestService.handleAcceptedRequest(scannerId);
@@ -1363,6 +1528,9 @@ exports.acceptRequest = async (req, res) => {
     });
 
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Accept request error:", err);
     res.status(500).json({ message: err.message });
   }
 };
