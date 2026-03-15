@@ -1,7 +1,8 @@
-
+// services/referralService.js - FIXED VERSION
 const Transaction = require("../src/models/Transaction");
 const User = require("../src/models/User");
 const Wallet = require("../src/models/Wallet");
+
 
 class ReferralService {
   /**
@@ -10,29 +11,36 @@ class ReferralService {
   static async processTeamCashback(userId, cashbackEarned, sourceType, sourceId = null) {
     try {
       const user = await User.findById(userId);
-      if (!user || !user.referredBy) return;
+      if (!user || !user.referredBy) {
+        // console.log(`User ${userId} has no referrer, stopping commission chain`);
+        return;
+      }
 
       let currentReferrerId = user.referredBy;
       let level = 1;
+
+      // console.log(`\n💰 Processing team cashback for user ${userId} - Amount: ₹${cashbackEarned}`);
 
       while (currentReferrerId && level <= 21) {
         const referrer = await User.findById(currentReferrerId);
         if (!referrer) break;
 
-        // Check if this level's leg is unlocked for the referrer
+        // CRITICAL: Check if this level's leg is unlocked
         if (!referrer.isLegUnlocked(level)) {
-          // console.log(`Level ${level} leg not unlocked for ${referrer.userId}, skipping...`);
+          // console.log(`❌ Level ${level} leg not unlocked for ${referrer.userId}, skipping commission`);
           currentReferrerId = referrer.referredBy;
           level++;
           continue;
         }
 
-        // Get commission rate for this level
+        // Get commission rate
         const rate = referrer.referralRates[`level${level}`] || 0;
         const commission = Number((cashbackEarned * rate).toFixed(2));
 
         if (commission > 0) {
-          // Add to referrer's cashback wallet
+          // console.log(`✅ Level ${level} unlocked - Paying ${rate*100}% = ₹${commission} to ${referrer.userId}`);
+
+          // Add to cashback wallet
           let cashbackWallet = await Wallet.findOne({
             user: referrer._id,
             type: "CASHBACK"
@@ -76,105 +84,76 @@ class ReferralService {
               sourceUser: userId,
               sourceAmount: cashbackEarned,
               sourceType: sourceType,
-              type: "TEAM_COMMISSION"
+              type: "TEAM_COMMISSION",
+              legUnlocked: true
             }
           });
-
-          // console.log(`✅ Level ${level} commission: ₹${commission} to ${referrer.userId} (${rate*100}%)`);
         }
 
         currentReferrerId = referrer.referredBy;
         level++;
       }
+      
     } catch (error) {
       // console.error("Error processing team cashback:", error);
     }
   }
 
   /**
-   * Get team cashback summary for user (all 21 levels)
+   * Get team cashback summary with member details - FIXED VERSION
    */
   static async getTeamCashbackSummary(userId) {
     try {
       const user = await User.findById(userId);
       if (!user) return null;
 
-      const teamStats = {};
+      const teamStats = {
+        legsUnlocked: user.legsUnlocked
+      };
       
       // Initialize stats for all 21 levels
       for (let level = 1; level <= 21; level++) {
         const levelUsers = user.referralTree?.[`level${level}`] || [];
+        
         const levelData = {
           users: levelUsers.length,
-          totalEarnings: 0,
           yourCommission: user.referralEarnings?.[`level${level}`] || 0,
           teamCashback: user.teamCashback?.[`level${level}`]?.total || 0,
           unlocked: user.isLegUnlocked(level)
         };
 
-        // Get details of users at this level (for frontend display)
+        // ✅ FIX: Get detailed user information for this level
         if (levelUsers.length > 0) {
           const userDetails = await User.find(
             { _id: { $in: levelUsers } },
-            'userId referralEarnings.total teamCashback'
+            'userId referralEarnings teamCashback'
           );
           
-          levelData.usersList = userDetails.map(u => ({
-            userId: u.userId,
-            earnings: u.referralEarnings?.total || 0,
-            teamCashback: u.teamCashback?.total || 0
-          }));
+          levelData.usersList = userDetails.map(u => {
+            // Calculate team cashback from all levels
+            const teamCashbackTotal = Object.values(u.teamCashback || {}).reduce(
+              (sum, level) => sum + (level?.total || 0), 0
+            );
+            
+            return {
+              userId: u.userId,
+              earnings: u.referralEarnings?.total || 0,
+              teamCashback: teamCashbackTotal,
+              // Add more details if needed
+              levelEarnings: u.referralEarnings || {},
+              legsUnlocked: u.legsUnlocked
+            };
+          });
+        } else {
+          levelData.usersList = [];
         }
 
         teamStats[`level${level}`] = levelData;
       }
 
-      // Add leg unlocking status
-      teamStats.legsUnlocked = user.legsUnlocked;
-
       return teamStats;
     } catch (error) {
       // console.error("Error getting team cashback summary:", error);
-      return null;
-    }
-  }
-
-  /**
-   * Get detailed team tree structure
-   */
-  static async getTeamTree(userId, depth = 7) {
-    try {
-      const user = await User.findById(userId);
-      if (!user) return null;
-
-      const tree = {
-        userId: user.userId,
-        referralCode: user.referralCode,
-        earnings: user.referralEarnings?.total || 0,
-        levels: {}
-      };
-
-      for (let level = 1; level <= depth * 3; level++) {
-        const levelUsers = user.referralTree?.[`level${level}`] || [];
-        if (levelUsers.length > 0) {
-          const users = await User.find(
-            { _id: { $in: levelUsers } },
-            'userId referralEarnings.total teamCashback'
-          );
-          
-          tree.levels[`level${level}`] = users.map(u => ({
-            userId: u.userId,
-            earnings: u.referralEarnings?.total || 0,
-            teamCashback: u.teamCashback?.total || 0
-          }));
-        } else {
-          tree.levels[`level${level}`] = [];
-        }
-      }
-
-      return tree;
-    } catch (error) {
-      // console.error("Error getting team tree:", error);
       return null;
     }
   }

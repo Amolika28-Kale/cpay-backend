@@ -8,7 +8,7 @@ const { getAllUsers, deleteUser } = require('../controllers/adminUsers.controlle
 const { getAllDeposits, approveDeposit, rejectDeposit } = require('../controllers/deposit.controller');
 const { getAllWithdraws, approveWithdraw, rejectWithdraw } = require('../controllers/withdraw.controller');
 const { togglePaymentMethod, getAllPaymentMethods } = require('../controllers/paymentMethodController');
-const { getSystemStats, getUserDetails } = require('../controllers/adminStats.controller'); // ✅ नवीन
+const { getSystemStats, getUserDetails, getAllUsersWithReferrals } = require('../controllers/adminStats.controller'); // ✅ नवीन
 
 // Public
 router.post('/login', login);
@@ -42,5 +42,7 @@ router.put('/withdraws/:id/reject', adminAuth, rejectWithdraw);
 
 // Payment Methods
 router.get('/payment-methods', adminAuth, getAllPaymentMethods);
+// Get all users with complete referral details
+router.get('/users-with-referrals', adminAuth, getAllUsersWithReferrals);
 
 module.exports = router;

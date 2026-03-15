@@ -271,3 +271,128 @@ exports.getUserDetails = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+
+// controllers/admin.controller.js
+
+// Get all users with complete referral details
+exports.getAllUsersWithReferrals = async (req, res) => {
+  try {
+    // Check if admin is authorized
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. Admin only.' 
+      });
+    }
+
+    // Get all users with populated referral fields
+    const users = await User.find({})
+      .select('-pin') // Exclude PIN
+      .populate('referredBy', 'userId email referralCode')
+      .lean();
+
+    // Process each user to add referral statistics
+    const usersWithStats = await Promise.all(users.map(async (user) => {
+      // Calculate total team size
+      let totalTeam = 0;
+      const teamByLevel = {};
+      
+      for (let level = 1; level <= 21; level++) {
+        const levelMembers = user.referralTree?.[`level${level}`] || [];
+        teamByLevel[`level${level}`] = levelMembers.length;
+        totalTeam += levelMembers.length;
+      }
+
+      // Get member details for level 1-3 (direct referrals and next levels)
+      const directMembers = await User.find(
+        { _id: { $in: user.referralTree?.level1 || [] } },
+        'userId email referralEarnings.total teamCashback'
+      ).lean();
+
+      // Calculate total cashback earned by this user
+      const totalCashback = user.referralEarnings?.total || 0;
+
+      // Calculate team cashback volume
+      const teamCashbackVolume = Object.values(user.teamCashback || {}).reduce(
+        (sum, level) => sum + (level.total || 0), 0
+      );
+
+      // Get scanner stats
+      const Scanner = mongoose.model('Scanner');
+      const createdScanners = await Scanner.find({ user: user._id })
+        .select('amount status createdAt')
+        .lean();
+      
+      const acceptedScanners = await Scanner.find({ acceptedBy: user._id })
+        .select('amount status createdAt')
+        .lean();
+
+      const createdAmount = createdScanners.reduce((sum, s) => sum + (s.amount || 0), 0);
+      const acceptedAmount = acceptedScanners.reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      return {
+        _id: user._id,
+        userId: user.userId,
+        email: user.email,
+        referralCode: user.referralCode,
+        referredBy: user.referredBy,
+        createdAt: user.createdAt,
+        walletActivated: user.walletActivated,
+        dailyAcceptLimit: user.dailyAcceptLimit,
+        
+        // Wallet balances
+        wallets: user.wallets || { USDT: 0, INR: 0, CASHBACK: 0 },
+        
+        // Referral statistics
+        referralStats: {
+          directReferrals: user.referralTree?.level1?.length || 0,
+          totalTeam: totalTeam,
+          teamByLevel: teamByLevel,
+          totalEarnings: totalCashback,
+          teamCashbackVolume: teamCashbackVolume,
+          legsUnlocked: user.legsUnlocked,
+          directMembers: directMembers.map(m => ({
+            userId: m.userId,
+            earnings: m.referralEarnings?.total || 0,
+            teamCashback: Object.values(m.teamCashback || {}).reduce((s, l) => s + (l.total || 0), 0)
+          }))
+        },
+
+        // Scanner statistics
+        scannerStats: {
+          created: {
+            count: createdScanners.length,
+            totalAmount: createdAmount,
+            list: createdScanners.slice(0, 5) // Last 5
+          },
+          accepted: {
+            count: acceptedScanners.length,
+            totalAmount: acceptedAmount,
+            list: acceptedScanners.slice(0, 5)
+          }
+        },
+
+        // Activation status
+        activation: {
+          activated: user.walletActivated,
+          expiryDate: user.activationExpiryDate,
+          limit: user.dailyAcceptLimit,
+          sevenDayTotal: user.sevenDayTotalAccepted
+        }
+      };
+    }));
+
+    res.json({
+      success: true,
+      data: usersWithStats
+    });
+
+  } catch (error) {
+    console.error("Error in getAllUsersWithReferrals:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};

@@ -286,7 +286,7 @@ const userSchema = new mongoose.Schema({
     trim: true
   },
 
-  email: {                    // ✅ Email field add केला
+  email: {
     type: String,
     required: true,
     unique: true,
@@ -309,7 +309,7 @@ const userSchema = new mongoose.Schema({
   firstDepositCompleted: { type: Boolean, default: false },
   firstAcceptCompleted: { type: Boolean, default: false },
   totalPayRequests: { type: Number, default: 0 },
-totalAcceptedRequests: { type: Number, default: 0 },
+  totalAcceptedRequests: { type: Number, default: 0 },
 
   referralCode: { type: String, unique: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -422,13 +422,13 @@ totalAcceptedRequests: { type: Number, default: 0 },
     leg7: { type: Boolean, default: false }
   },
 
-  // ✅ Wallet Activation Fields
+  // Wallet Activation Fields
   walletActivated: { type: Boolean, default: false },
   activationDate: { type: Date, default: null },
   activationExpiryDate: { type: Date, default: null },
   dailyAcceptLimit: { type: Number, default: 1000 },
   
-  // ✅ 7-Day Limit Fields
+  // 7-Day Limit Fields
   sevenDayTotalAccepted: { type: Number, default: 0 },
   sevenDayResetDate: { type: Date, default: null },
   activationHistory: [{
@@ -439,36 +439,30 @@ totalAcceptedRequests: { type: Number, default: 0 },
     status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }
   }],
   
-// models/User.js - Add this to existing schema
-
-autoRequest: {
-  // First request tracking
-  firstRequestCreated: { type: Boolean, default: false },
-  firstRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
-  firstRequestAmount: { type: Number, default: 0 },
-  firstRequestCreatedAt: { type: Date, default: null },
-  firstRequestExpiresAt: { type: Date, default: null },
-  firstRequestCompleted: { type: Boolean, default: false },
-  firstRequestCompletedAt: { type: Date, default: null },
-  
-  // Second request tracking (30 minutes later)
-  secondRequestCreated: { type: Boolean, default: false },
-  secondRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
-  secondRequestAmount: { type: Number, default: 0 },
-  secondRequestCreatedAt: { type: Date, default: null },
-  secondRequestExpiresAt: { type: Date, default: null },
-  secondRequestCompleted: { type: Boolean, default: false },
-  secondRequestCompletedAt: { type: Date, default: null },
-  
-  // Schedule tracking
-  nextRequestScheduledAt: { type: Date, default: null },
-  autoRequestCompleted: { type: Boolean, default: false },
-  
-  // Stats
-  totalAutoRequests: { type: Number, default: 0 },
-  autoRequestsAccepted: { type: Number, default: 0 },
-  currentRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null }
-}
+  autoRequest: {
+    firstRequestCreated: { type: Boolean, default: false },
+    firstRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
+    firstRequestAmount: { type: Number, default: 0 },
+    firstRequestCreatedAt: { type: Date, default: null },
+    firstRequestExpiresAt: { type: Date, default: null },
+    firstRequestCompleted: { type: Boolean, default: false },
+    firstRequestCompletedAt: { type: Date, default: null },
+    
+    secondRequestCreated: { type: Boolean, default: false },
+    secondRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null },
+    secondRequestAmount: { type: Number, default: 0 },
+    secondRequestCreatedAt: { type: Date, default: null },
+    secondRequestExpiresAt: { type: Date, default: null },
+    secondRequestCompleted: { type: Boolean, default: false },
+    secondRequestCompletedAt: { type: Date, default: null },
+    
+    nextRequestScheduledAt: { type: Date, default: null },
+    autoRequestCompleted: { type: Boolean, default: false },
+    
+    totalAutoRequests: { type: Number, default: 0 },
+    autoRequestsAccepted: { type: Number, default: 0 },
+    currentRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "Scanner", default: null }
+  }
 
 }, { timestamps: true });
 
@@ -501,20 +495,20 @@ userSchema.pre('save', async function (next) {
   next();
 });
 
-// ✅ Method to check if activation is expired (7 days)
+// Method to check if activation is expired (7 days)
 userSchema.methods.isActivationExpired = function() {
   if (!this.activationExpiryDate) return true;
   return new Date() > this.activationExpiryDate;
 };
 
-// ✅ Method to get remaining days
+// Method to get remaining days
 userSchema.methods.getRemainingDays = function() {
   if (!this.activationExpiryDate) return 0;
   const diffTime = this.activationExpiryDate - new Date();
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 };
 
-// ✅ Method to reset 7-day totals if needed
+// Method to reset 7-day totals if needed
 userSchema.methods.checkAndResetSevenDay = function() {
   if (this.sevenDayResetDate && new Date() > this.sevenDayResetDate) {
     this.sevenDayTotalAccepted = 0;
@@ -526,10 +520,17 @@ userSchema.methods.checkAndResetSevenDay = function() {
   return false;
 };
 
-// Method to check if a leg is unlocked
+// ========== CORRECTED LEG UNLOCK METHODS (DIRECT REFERRAL BASED) ==========
+
+/**
+ * Method to check if a specific level's leg is unlocked
+ * Leg unlocking is based on DIRECT REFERRALS count
+ */
 userSchema.methods.isLegUnlocked = function(level) {
+  // Levels 1-3 always unlocked (Leg 1)
   if (level <= 3) return true;
   
+  // Map levels to legs
   const legMap = {
     4: 'leg2', 5: 'leg2', 6: 'leg2',
     7: 'leg3', 8: 'leg3', 9: 'leg3',
@@ -540,68 +541,138 @@ userSchema.methods.isLegUnlocked = function(level) {
   };
   
   const leg = legMap[level];
-  return this.legsUnlocked && this.legsUnlocked[leg];
+  
+  // If leg doesn't exist in map or level >21, return false
+  if (!leg) return false;
+  
+  // Check if this leg is unlocked
+  return this.legsUnlocked && this.legsUnlocked[leg] === true;
 };
 
-// Method to unlock next leg
+/**
+ * Method to unlock next leg based on DIRECT REFERRALS count
+ * Each leg unlocks when you have enough direct referrals:
+ * - Leg 2: Need 1 direct referral
+ * - Leg 3: Need 2 direct referrals
+ * - Leg 4: Need 3 direct referrals
+ * - Leg 5: Need 4 direct referrals
+ * - Leg 6: Need 5 direct referrals
+ * - Leg 7: Need 6 direct referrals
+ */
 userSchema.methods.unlockNextLeg = async function() {
-  if (!this.legsUnlocked.leg2 && this.referralTree.level3?.length > 0) {
+  let changed = false;
+  
+  // Get direct referrals count (Level 1 users)
+  const directReferralsCount = this.referralTree?.level1?.length || 0;
+  
+  // console.log(`\n🔓 Checking leg unlock for ${this.userId}:`);
+  // console.log(`Direct referrals: ${directReferralsCount}`);
+  // console.log(`Current legs unlocked:`, this.legsUnlocked);
+  
+  // Leg 1 is always unlocked by default (levels 1-3)
+  
+  // Leg 2 (levels 4-6): Needs at least 1 direct referral
+  if (!this.legsUnlocked.leg2 && directReferralsCount >= 1) {
     this.legsUnlocked.leg2 = true;
+    changed = true;
+    console.log(`✅ Leg 2 unlocked - 1 direct referral`);
   }
-  if (!this.legsUnlocked.leg3 && this.referralTree.level6?.length > 0) {
+  
+  // Leg 3 (levels 7-9): Needs at least 2 direct referrals
+  if (!this.legsUnlocked.leg3 && directReferralsCount >= 2) {
     this.legsUnlocked.leg3 = true;
+    changed = true;
+    console.log(`✅ Leg 3 unlocked - 2 direct referrals`);
   }
-  if (!this.legsUnlocked.leg4 && this.referralTree.level9?.length > 0) {
+  
+  // Leg 4 (levels 10-12): Needs at least 3 direct referrals
+  if (!this.legsUnlocked.leg4 && directReferralsCount >= 3) {
     this.legsUnlocked.leg4 = true;
+    changed = true;
+    console.log(`✅ Leg 4 unlocked - 3 direct referrals`);
   }
-  if (!this.legsUnlocked.leg5 && this.referralTree.level12?.length > 0) {
+  
+  // Leg 5 (levels 13-15): Needs at least 4 direct referrals
+  if (!this.legsUnlocked.leg5 && directReferralsCount >= 4) {
     this.legsUnlocked.leg5 = true;
+    changed = true;
+    // console.log(`✅ Leg 5 unlocked - 4 direct referrals`);
   }
-  if (!this.legsUnlocked.leg6 && this.referralTree.level15?.length > 0) {
+  
+  // Leg 6 (levels 16-18): Needs at least 5 direct referrals
+  if (!this.legsUnlocked.leg6 && directReferralsCount >= 5) {
     this.legsUnlocked.leg6 = true;
+    changed = true;
+    // console.log(`✅ Leg 6 unlocked - 5 direct referrals`);
   }
-  if (!this.legsUnlocked.leg7 && this.referralTree.level18?.length > 0) {
+  
+  // Leg 7 (levels 19-21): Needs at least 6 direct referrals
+  if (!this.legsUnlocked.leg7 && directReferralsCount >= 6) {
     this.legsUnlocked.leg7 = true;
+    changed = true;
+    // console.log(`✅ Leg 7 unlocked - 6 direct referrals`);
   }
-  await this.save();
+  
+  if (changed) {
+    await this.save();
+    // console.log(`✅ Updated legs unlocked for ${this.userId}:`, this.legsUnlocked);
+  } else {
+    // console.log(`ℹ️ No new legs unlocked for ${this.userId}`);
+  }
+  
+  return changed;
 };
 
-// Add to referral tree with leg unlocking logic
-userSchema.statics.addToReferralTree = async function(userId, referrerId, currentLevel = 1) {
+/**
+ * Add user to referral tree (uplines)
+ * This function recursively adds the user to all upline levels
+ */
+userSchema.statics.addToReferralTree = async function(userId, referrerId, currentLevel = 1, session = null) {
   if (currentLevel > 21 || !referrerId) return;
   
   const User = this;
-  const referrer = await User.findById(referrerId);
+  const referrer = await User.findById(referrerId).session(session);
   
   if (!referrer) return;
   
+  // IMPORTANT: Check if this level's leg is unlocked for the referrer
   if (!referrer.isLegUnlocked(currentLevel)) {
+    // console.log(`❌ Level ${currentLevel} leg not unlocked for ${referrer.userId}, skipping...`);
     return;
   }
   
+  // console.log(`✅ Adding user to ${referrer.userId}'s level ${currentLevel} (leg unlocked)`);
+  
+  // Add user to referrer's level
   const updateField = `referralTree.level${currentLevel}`;
   
   await User.findByIdAndUpdate(
     referrerId,
-    { $addToSet: { [updateField]: userId } }
+    { $addToSet: { [updateField]: userId } },
+    { session }
   );
   
+  // Update team cashback count
   await User.findByIdAndUpdate(
     referrerId,
     { 
       $inc: { 
         [`teamCashback.level${currentLevel}.count`]: 1
       } 
-    }
+    },
+    { session }
   );
   
-  if (currentLevel === 3 || currentLevel === 6 || currentLevel === 9 || 
-      currentLevel === 12 || currentLevel === 15 || currentLevel === 18) {
-    await referrer.unlockNextLeg();
+  // IMPORTANT: For direct referrals (Level 1), check if new legs should be unlocked
+  if (currentLevel === 1) {
+    // console.log(`🔍 New direct referral added for ${referrer.userId}, checking leg unlocks...`);
+    const updatedReferrer = await User.findById(referrerId).session(session);
+    await updatedReferrer.unlockNextLeg();
   }
   
+  // Continue up the tree (uplines)
   if (referrer.referredBy) {
-    await User.addToReferralTree(userId, referrer.referredBy, currentLevel + 1);
+    await User.addToReferralTree(userId, referrer.referredBy, currentLevel + 1, session);
   }
 };
 

@@ -1067,51 +1067,6 @@ const ReferralService = require("../../services/referralService");
 const AutoRequestService = require("../../services/autoRequestService"); // ✅ Import Auto Request Service
 const fs = require('fs'); // File system for cleanup
 
-/* =========================================================
-   1️⃣ REQUEST TO PAY (User A creates request)
-========================================================= */
-// exports.requestToPay = async (req, res) => {
-//   try {
-//     const { amount } = req.body;
-//     const userId = req.user.id;
-
-//     const user = await User.findById(userId);
-    
-//     if (user.firstDepositCompleted && !user.firstAcceptCompleted) {
-//       return res.status(403).json({ 
-//         message: "You must accept at least one payment request before creating your own" 
-//       });
-//     }
-
-//     if (!amount || amount <= 0)
-//       return res.status(400).json({ message: "Invalid amount" });
-
-//     if (!req.file)
-//       return res.status(400).json({ message: "QR required" });
-
-//     const expiresAt = new Date();
-//     expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-
-//     const scanner = await Scanner.create({
-//       user: userId,
-//       amount: Number(amount),
-//       image: `/uploads/${req.file.filename}`,
-//       upiLink: req.body.upiLink,
-//       status: "ACTIVE",
-//       expiresAt: expiresAt,
-//       isAutoRequest: false // Not auto request
-//     });
-
-//     res.status(201).json({
-//       message: "Request sent to all users",
-//       scanner
-//     });
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
-
 exports.requestToPay = async (req, res) => {
   try {
     const { amount } = req.body;
@@ -1246,67 +1201,6 @@ await user.save();
     });
   }
 };
-/* =========================================================
-   2️⃣ GET ALL ACTIVE REQUESTS
-========================================================= */
-// exports.getActiveRequests = async (req, res) => {
-//   try {
-//     const userId = req.user.id;
-
-//     // Get user for 7-day limit check
-//     const user = await User.findById(userId);
-    
-//     // Check 7-day reset
-//     user.checkAndResetSevenDay();
-
-//     const requests = await Scanner.find({
-//       $or: [
-//         // System requests
-//         {
-//           user: null,
-//           status: "ACTIVE",
-//           isAutoRequest: true,
-//           expiresAt: { $gt: new Date() }
-//         },
-//         // Other users active requests
-//         {
-//           user: { $nin: [userId, null] },
-//           status: "ACTIVE",
-//           expiresAt: { $gt: new Date() }
-//         },
-//         // Requests accepted by this user (any status except COMPLETED)
-//         {
-//           acceptedBy: userId,
-//           status: { $in: ["ACCEPTED", "PAYMENT_SUBMITTED"] }
-//         },
-//         // ✅ FIXED: OWN REQUESTS - सगळे दाखवा (ACTIVE, ACCEPTED, PAYMENT_SUBMITTED, COMPLETED)
-//         {
-//           user: userId
-//           // काहीही condition नको - सगळे requests दाखवा
-//         }
-//       ]
-//     })
-//     .populate("user", "name userId")
-//     .populate("acceptedBy", "name userId")
-//     .sort({ createdAt: -1 });
-
-//     // ✅ Add remaining limit info to response headers or separate field
-//     res.json({
-//       requests,
-//       limitInfo: {
-//         dailyLimit: user.dailyAcceptLimit,
-//         sevenDayTotalAccepted: user.sevenDayTotalAccepted,
-//         remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted,
-//         remainingDays: user.getRemainingDays()
-//       }
-//     });
-
-//   } catch (err) {
-//     console.error("❌ Error in getActiveRequests:", err);
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
 
 /* =========================================================
    2️⃣ GET ALL ACTIVE REQUESTS (UPDATED - Hide accepted requests)
@@ -1370,76 +1264,6 @@ exports.getActiveRequests = async (req, res) => {
   }
 };
 
-
-  //  3️⃣ ACCEPT REQUEST (User B Accept) - UPDATED for Auto Request
-// exports.acceptRequest = async (req, res) => {
-//   try {
-//     const { scannerId } = req.body;
-//     const userId = req.user.id;
-
-//     const user = await User.findById(userId);
-//     const scanner = await Scanner.findById(scannerId);
-    
-//     if (!user) return res.status(404).json({ message: "User not found" });
-//     if (!scanner) return res.status(404).json({ message: "Scanner not found" });
-    
-//     // Check if wallet is activated
-//     if (!user.walletActivated) {
-//       return res.status(400).json({ message: "Please activate your wallet first" });
-//     }
-    
-//     // Check if activation expired (7 days)
-//     if (user.isActivationExpired()) {
-//       user.walletActivated = false;
-//       await user.save();
-//       return res.status(400).json({ message: "Wallet activation expired. Please activate again." });
-//     }
-    
-//     // Check 7-day limit
-//     user.checkAndResetSevenDay();
-    
-//     // ✅ FIX: Check if amount exceeds remaining 7-day limit
-//     // BUT DO NOT DEDUCT YET - only check
-//     if (user.sevenDayTotalAccepted + scanner.amount > user.dailyAcceptLimit) {
-//       return res.status(400).json({ 
-//         message: "7-day amount limit exceeded",
-//         remaining: user.dailyAcceptLimit - user.sevenDayTotalAccepted
-//       });
-//     }
-
-//     // ✅ UPDATE SCANNER ONLY - NO 7-DAY DEDUCTION
-//     scanner.status = "ACCEPTED";
-//     scanner.acceptedBy = userId;
-//     scanner.acceptedAt = new Date();
-//     await scanner.save();
-
-//     // ✅ DO NOT UPDATE 7-DAY TOTAL HERE - REMOVED THIS LINE
-//     // user.sevenDayTotalAccepted = (user.sevenDayTotalAccepted || 0) + scanner.amount; ❌ REMOVED
-    
-//     user.todayAcceptedCount = (user.todayAcceptedCount || 0) + 1;
-    
-//     if (!user.firstAcceptCompleted) {
-//       user.firstAcceptCompleted = true;
-//     }
-    
-//     await user.save();
-
-//     // ✅ If it's an AUTO REQUEST, schedule auto-confirm
-//     let autoConfirmMessage = null;
-//     if (scanner.isAutoRequest) {
-//       AutoRequestService.handleAcceptedRequest(scannerId);
-//       autoConfirmMessage = "Auto request will be confirmed in 1 minute after proof submission.";
-//     }
-
-//     res.json({ 
-//       message: "Request accepted successfully",
-//       info: autoConfirmMessage || "Balance will be deducted after transaction completion"
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
 
 /* =========================================================
    3️⃣ ACCEPT REQUEST (WITH CONCURRENCY CONTROL)
@@ -1557,51 +1381,6 @@ if (!user.firstAcceptCompleted) {
     res.status(500).json({ message: err.message });
   }
 };
-
-/* =========================================================
-   4️⃣ SUBMIT PAYMENT SCREENSHOT (User B) - UPDATED for Auto Request
-========================================================= */
-// exports.submitPayment = async (req, res) => {
-//   try {
-//     const { scannerId } = req.body;
-//     const userId = req.user.id;
-
-//     const scanner = await Scanner.findById(scannerId);
-
-//     if (!scanner || scanner.status !== "ACCEPTED")
-//       return res.status(400).json({ message: "Invalid state" });
-
-//     if (scanner.acceptedBy.toString() !== userId)
-//       return res.status(403).json({ message: "Not authorized" });
-
-//     if (!req.file)
-//       return res.status(400).json({ message: "Screenshot required" });
-
-//     scanner.paymentScreenshot = `/uploads/${req.file.filename}`;
-//     scanner.status = "PAYMENT_SUBMITTED";
-//     scanner.paymentSubmittedAt = new Date();
-
-//     await scanner.save();
-
-//     // ✅ If it's an AUTO REQUEST, schedule auto-confirm
-//     if (scanner.isAutoRequest) {
-//       setTimeout(() => {
-//         AutoRequestService.autoConfirmRequest(scannerId);
-//       }, 60 * 1000);
-      
-//       return res.json({ 
-//         message: "Payment proof submitted! Transaction will auto-confirm in 1 minute.",
-//         autoConfirmIn: "1 minute"
-//       });
-//     }
-
-//     res.json({ message: "Screenshot submitted successfully" });
-
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
 
 /* =========================================================
    4️⃣ SUBMIT PAYMENT SCREENSHOT (Multiple Support)
@@ -1829,9 +1608,6 @@ exports.deleteScreenshot = async (req, res) => {
 };
 
 /* =========================================================
-   5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - BALANCE DEDUCTION HERE
-========================================================= */
-/* =========================================================
    5️⃣ CONFIRM FINAL PAYMENT (User A Confirms) - 7-DAY DEDUCTION HERE
 ========================================================= */
 exports.confirmFinalPayment = async (req, res) => {
@@ -1942,146 +1718,6 @@ exports.confirmFinalPayment = async (req, res) => {
   }
 };
 
-/* =========================================================
-   6️⃣ ACTIVATE WALLET (7-Day Limit)
-========================================================= */
-// exports.activateWallet = async (req, res) => {
-//   const session = await mongoose.startSession();
-  
-//   try {
-//     session.startTransaction();
-
-//     const userId = req.user.id;
-//     const { dailyLimit, activationAmount, isIncrease } = req.body;
-
-//     const user = await User.findById(userId).session(session);
-//     if (!user) {
-//       throw new Error("User not found");
-//     }
-
-//     // ✅ MINIMUM ACTIVATION AMOUNT CHECK - $50 USDT for first time
-//     const MIN_ACTIVATION_USDT = 50;
-    
-//     if (!user.walletActivated && activationAmount < MIN_ACTIVATION_USDT) {
-//       await session.abortTransaction();
-//       session.endSession();
-//       return res.status(400).json({ 
-//         message: `Minimum activation amount is $${MIN_ACTIVATION_USDT} USDT` 
-//       });
-//     }
-
-//     // Calculate expiry date (7 days from now)
-//     const expiryDate = new Date();
-//     expiryDate.setDate(expiryDate.getDate() + 7);
-
-//     // Save previous activation to history if exists
-//     if (user.walletActivated) {
-//       user.activationHistory.push({
-//         date: user.activationDate,
-//         limit: user.dailyAcceptLimit,
-//         amount: activationAmount,
-//         expiryDate: user.activationExpiryDate,
-//         status: 'EXPIRED'
-//       });
-//     }
-
-//     // USDT wallet update
-//     let usdtWallet = await Wallet.findOne({ user: userId, type: "USDT" }).session(session);
-//     if (!usdtWallet) {
-//       usdtWallet = new Wallet({ user: userId, type: "USDT", balance: 0 });
-//     }
-//     usdtWallet.balance += activationAmount;
-//     await usdtWallet.save({ session });
-
-//     // INR wallet update
-//     const conversionRate = 95;
-//     const inrAmount = activationAmount * conversionRate;
-
-//     let inrWallet = await Wallet.findOne({ user: userId, type: "INR" }).session(session);
-//     if (!inrWallet) {
-//       inrWallet = new Wallet({ user: userId, type: "INR", balance: 0 });
-//     }
-//     inrWallet.balance += inrAmount;
-//     await inrWallet.save({ session });
-
-//     // Transaction records with proper currency symbols
-//     await Transaction.create([
-//       {
-//         user: userId,
-//         type: "DEPOSIT",
-//         fromWallet: null,
-//         toWallet: "USDT",
-//         amount: activationAmount,
-//         meta: {
-//           currency: "USDT",
-//           symbol: "$",
-//           type: "ACTIVATION_DEPOSIT"
-//         }
-//       },
-//       {
-//         user: userId,
-//         type: "CONVERSION",
-//         fromWallet: "USDT",
-//         toWallet: "INR",
-//         amount: inrAmount,
-//         meta: {
-//           rate: conversionRate,
-//           originalAmount: activationAmount,
-//           originalCurrency: "USDT",
-//           symbol: "₹",
-//           type: "ACTIVATION_CONVERSION"
-//         }
-//       },
-//       {
-//         user: userId,
-//         type: "WALLET_ACTIVATION",
-//         fromWallet: "USDT",
-//         toWallet: "INR",
-//         amount: activationAmount,
-//         meta: {
-//           usdtAmount: activationAmount,
-//           inrAmount: inrAmount,
-//           rate: conversionRate,
-//           dailyLimit: dailyLimit,
-//           symbol: "$",
-//           type: "ACTIVATION"
-//         }
-//       }
-//     ], { session });
-
-//     // User activation status update
-//     user.walletActivated = true;
-//     user.activationDate = new Date();
-//     user.activationExpiryDate = expiryDate;
-//     user.dailyAcceptLimit = dailyLimit;
-//     user.sevenDayTotalAccepted = 0;
-//     user.sevenDayResetDate = expiryDate;
-//     user.todayAcceptedCount = 0;
-//     await user.save({ session });
-
-//     await session.commitTransaction();
-//     session.endSession();
-
-//     res.json({ 
-//       message: user.walletActivated ? "Wallet limit updated successfully" : "Wallet activated successfully",
-//       dailyLimit,
-//       activationAmount,
-//       inrAmount,
-//       usdtBalance: usdtWallet.balance,
-//       inrBalance: inrWallet.balance,
-//       validUntil: expiryDate,
-//       remainingDays: 7
-//     });
-
-//   } catch (err) {
-//     await session.abortTransaction();
-//     session.endSession();
-//     console.error("Wallet activation error:", err);
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
-// scanner.controller.js - activateWallet function
 
 exports.activateWallet = async (req, res) => {
   const session = await mongoose.startSession();
@@ -2214,58 +1850,6 @@ exports.activateWallet = async (req, res) => {
 /* =========================================================
    7️⃣ CHECK WALLET ACTIVATION STATUS (7-Day Logic)
 ========================================================= */
-// exports.checkWalletActivation = async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user.id);
-    
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     // Check if activation expired (7 days)
-//     if (user.walletActivated && user.isActivationExpired()) {
-//       console.log("7 days completed - resetting activation");
-//       user.walletActivated = false;
-//       user.sevenDayTotalAccepted = 0;
-//       user.todayAcceptedCount = 0;
-//       user.activationExpiryDate = null;
-//       await user.save();
-//     }
-
-//     // Check if 7-day reset needed
-//     user.checkAndResetSevenDay();
-
-//     // Calculate remaining days
-//     const remainingDays = user.walletActivated ? user.getRemainingDays() : 0;
-    
-//     // Calculate reset date
-//     const resetDate = user.activationExpiryDate || 
-//       (user.activationDate ? new Date(user.activationDate.getTime() + (7 * 24 * 60 * 60 * 1000)) : null);
-
-//     res.json({
-//       activated: user.walletActivated || false,
-//       dailyLimit: user.walletActivated ? user.dailyAcceptLimit : 0,
-//       sevenDayTotal: user.sevenDayTotalAccepted || 0,
-//       remaining: user.walletActivated ? (user.dailyAcceptLimit - (user.sevenDayTotalAccepted || 0)) : 0,
-//       activationDate: user.activationDate,
-//       expiryDate: user.activationExpiryDate,
-//       remainingDays: remainingDays,
-//       resetDate: resetDate,
-//       firstDepositCompleted: user.firstDepositCompleted || false,
-//       firstAcceptCompleted: user.firstAcceptCompleted || false,
-//       // Daily average for display
-//       dailyAverage: user.walletActivated ? (user.dailyAcceptLimit / 7).toFixed(2) : 0
-//     });
-
-//   } catch (err) {
-//     console.error("Check activation error:", err);
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-
-
-// scanner.controller.js - checkWalletActivation function
-
 exports.checkWalletActivation = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);

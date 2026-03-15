@@ -14,39 +14,6 @@ exports.getWallets = async (req, res) => {
   }
 };
 
-// exports.transferCashback = async (req, res) => {
-//   try {
-//     const { amount } = req.body;
-//     const userId = req.user.id;
-
-//     if (amount <= 0) return res.status(400).json({ message: 'Invalid amount' });
-
-//     const cashbackWallet = await Wallet.findOne({ user: userId, type: 'CASHBACK' });
-//     const inrWallet = await Wallet.findOne({ user: userId, type: 'INR' });
-
-//     if (!cashbackWallet || cashbackWallet.balance < amount) {
-//       return res.status(400).json({ message: 'Insufficient cashback balance' });
-//     }
-
-//     cashbackWallet.balance -= amount;
-//     inrWallet.balance += amount;
-
-//     await cashbackWallet.save();
-//     await inrWallet.save();
-
-//     await Transaction.create({
-//       user: userId,
-//       type: 'CASHBACK_TRANSFER',
-//       fromWallet: 'CASHBACK',
-//       toWallet: 'INR',
-//       amount
-//     });
-
-//     res.json({ message: 'Transfer successful' });
-//   } catch (err) {
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// };
 exports.getWalletSummary = async (req, res) => {
   try {
     const wallets = await Wallet.find({ user: req.user.id });
@@ -145,10 +112,16 @@ exports.transferCashback = async (req, res) => {
   }
 };
 
-// Add new endpoint for team cashback summary
+// controllers/wallet.controller.js - यामध्ये console.log जोडा
+
 exports.getTeamCashbackSummary = async (req, res) => {
   try {
+    // console.log("📥 Getting team cashback summary for user:", req.user.id);
+    
     const summary = await ReferralService.getTeamCashbackSummary(req.user.id);
+    
+    // console.log("📤 Team cashback summary:", JSON.stringify(summary, null, 2));
+    
     res.json(summary || {});
   } catch (err) {
     // console.error("Team cashback summary error:", err);
