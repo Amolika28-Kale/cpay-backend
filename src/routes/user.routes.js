@@ -16,160 +16,120 @@ router.post('/register', register);
 router.post('/login', login);
 router.get('/referral', userAuth, getReferralStats);
 
-// Get leg unlocking status
+// Get leg unlocking status - CORRECTED
 router.get('/leg-status', userAuth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     
     const directReferralsCount = user.referralTree?.level1?.length || 0;
+    const requirements = User.getLegRequirements();
+    const nextLeg = user.getNextLegToUnlock();
     
     const legStatus = {
       directReferrals: directReferralsCount,
       legsUnlocked: user.legsUnlocked,
       legDetails: {
         leg1: { 
-          unlocked: true, 
-          levels: [1,2,3],
-          requirement: "Always unlocked",
-          current: "N/A",
-          needed: 0
+          unlocked: user.legsUnlocked.leg1, 
+          levels: requirements.leg1.levels,
+          requirement: `Need ${requirements.leg1.required} direct referral`,
+          current: directReferralsCount,
+          needed: requirements.leg1.required,
+          remaining: Math.max(0, requirements.leg1.required - directReferralsCount)
         },
         leg2: { 
           unlocked: user.legsUnlocked.leg2, 
-          levels: [4,5,6],
-          requirement: "Need at least 1 direct referral",
+          levels: requirements.leg2.levels,
+          requirement: `Need ${requirements.leg2.required} direct referrals`,
           current: directReferralsCount,
-          needed: 1,
-          remaining: Math.max(0, 1 - directReferralsCount)
+          needed: requirements.leg2.required,
+          remaining: Math.max(0, requirements.leg2.required - directReferralsCount)
         },
         leg3: { 
           unlocked: user.legsUnlocked.leg3, 
-          levels: [7,8,9],
-          requirement: "Need at least 2 direct referrals",
+          levels: requirements.leg3.levels,
+          requirement: `Need ${requirements.leg3.required} direct referrals`,
           current: directReferralsCount,
-          needed: 2,
-          remaining: Math.max(0, 2 - directReferralsCount)
+          needed: requirements.leg3.required,
+          remaining: Math.max(0, requirements.leg3.required - directReferralsCount)
         },
         leg4: { 
           unlocked: user.legsUnlocked.leg4, 
-          levels: [10,11,12],
-          requirement: "Need at least 3 direct referrals",
+          levels: requirements.leg4.levels,
+          requirement: `Need ${requirements.leg4.required} direct referrals`,
           current: directReferralsCount,
-          needed: 3,
-          remaining: Math.max(0, 3 - directReferralsCount)
+          needed: requirements.leg4.required,
+          remaining: Math.max(0, requirements.leg4.required - directReferralsCount)
         },
         leg5: { 
           unlocked: user.legsUnlocked.leg5, 
-          levels: [13,14,15],
-          requirement: "Need at least 4 direct referrals",
+          levels: requirements.leg5.levels,
+          requirement: `Need ${requirements.leg5.required} direct referrals`,
           current: directReferralsCount,
-          needed: 4,
-          remaining: Math.max(0, 4 - directReferralsCount)
+          needed: requirements.leg5.required,
+          remaining: Math.max(0, requirements.leg5.required - directReferralsCount)
         },
         leg6: { 
           unlocked: user.legsUnlocked.leg6, 
-          levels: [16,17,18],
-          requirement: "Need at least 5 direct referrals",
+          levels: requirements.leg6.levels,
+          requirement: `Need ${requirements.leg6.required} direct referrals`,
           current: directReferralsCount,
-          needed: 5,
-          remaining: Math.max(0, 5 - directReferralsCount)
+          needed: requirements.leg6.required,
+          remaining: Math.max(0, requirements.leg6.required - directReferralsCount)
         },
         leg7: { 
           unlocked: user.legsUnlocked.leg7, 
-          levels: [19,20,21],
-          requirement: "Need at least 6 direct referrals",
+          levels: requirements.leg7.levels,
+          requirement: `Need ${requirements.leg7.required} direct referrals`,
           current: directReferralsCount,
-          needed: 6,
-          remaining: Math.max(0, 6 - directReferralsCount)
+          needed: requirements.leg7.required,
+          remaining: Math.max(0, requirements.leg7.required - directReferralsCount)
         }
       },
-      nextLegToUnlock: null,
+      nextLegToUnlock: nextLeg,
       summary: `You have ${directReferralsCount} direct referral${directReferralsCount !== 1 ? 's' : ''}. `
     };
 
-    const legOrder = ['leg2', 'leg3', 'leg4', 'leg5', 'leg6', 'leg7'];
-    for (const leg of legOrder) {
-      if (!user.legsUnlocked[leg]) {
-        const needed = legStatus.legDetails[leg].needed;
-        legStatus.nextLegToUnlock = {
-          leg: leg,
-          levels: legStatus.legDetails[leg].levels,
-          required: needed,
-          current: directReferralsCount,
-          remaining: needed - directReferralsCount
-        };
-        legStatus.summary += `Need ${needed - directReferralsCount} more direct referral${needed - directReferralsCount !== 1 ? 's' : ''} to unlock ${leg} (levels ${legStatus.legDetails[leg].levels.join('-')}).`;
-        break;
-      }
-    }
-
-    if (!legStatus.nextLegToUnlock) {
+    if (nextLeg) {
+      legStatus.summary += `Need ${nextLeg.remaining} more direct referral${nextLeg.remaining > 1 ? 's' : ''} to unlock ${nextLeg.leg} (levels ${nextLeg.levels.join('-')}).`;
+    } else {
       legStatus.summary += `All legs unlocked! Great job!`;
     }
 
     res.json(legStatus);
   } catch (error) {
-    // console.error("Leg status error:", error);
+    console.error("Leg status error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get next leg requirement
+// Get next leg requirement - CORRECTED
 router.get('/next-leg-requirement', userAuth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     
-    const directReferralsCount = user.referralTree?.level1?.length || 0;
-    
-    const legRequirements = {
-      leg2: { required: 1, levels: [4,5,6] },
-      leg3: { required: 2, levels: [7,8,9] },
-      leg4: { required: 3, levels: [10,11,12] },
-      leg5: { required: 4, levels: [13,14,15] },
-      leg6: { required: 5, levels: [16,17,18] },
-      leg7: { required: 6, levels: [19,20,21] }
-    };
-
-    const legOrder = ['leg2', 'leg3', 'leg4', 'leg5', 'leg6', 'leg7'];
-    let nextLeg = null;
-    
-    for (const leg of legOrder) {
-      if (!user.legsUnlocked[leg]) {
-        nextLeg = {
-          leg: leg,
-          requiredDirectReferrals: legRequirements[leg].required,
-          currentDirectReferrals: directReferralsCount,
-          remainingToUnlock: Math.max(0, legRequirements[leg].required - directReferralsCount),
-          levelsInThisLeg: legRequirements[leg].levels,
-          isUnlockable: directReferralsCount >= legRequirements[leg].required
-        };
-        break;
-      }
-    }
+    const nextLeg = user.getNextLegToUnlock();
 
     res.json({
       success: true,
       data: {
         userId: user.userId,
-        directReferrals: directReferralsCount,
+        directReferrals: user.referralTree?.level1?.length || 0,
         legsUnlocked: user.legsUnlocked,
         nextLegToUnlock: nextLeg,
         summary: nextLeg ? 
           (nextLeg.isUnlockable ? 
-            `You can unlock ${nextLeg.leg} now! Go to dashboard to activate.` : 
-            `Need ${nextLeg.remainingToUnlock} more direct referral${nextLeg.remainingToUnlock > 1 ? 's' : ''} to unlock ${nextLeg.leg} (levels ${nextLeg.levelsInThisLeg.join('-')})`) :
+            `You can unlock ${nextLeg.leg} now!` : 
+            `Need ${nextLeg.remaining} more direct referral${nextLeg.remaining > 1 ? 's' : ''} to unlock ${nextLeg.leg} (levels ${nextLeg.levels.join('-')})`) :
           'All legs unlocked! Great job!'
       }
     });
 
   } catch (error) {
-    // console.error("Error:", error);
+    console.error("Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
-// routes/userAuth.routes.js - यामध्ये हा route दुरुस्त करा
-
 // Get member details - FIXED VERSION
 router.get('/member-details/:memberId', userAuth, async (req, res) => {
   try {
