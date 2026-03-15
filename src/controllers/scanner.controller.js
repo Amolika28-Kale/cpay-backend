@@ -2055,3 +2055,41 @@ exports.cancelRequest = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+
+/* =========================================================
+   REQUEST UTR SCREENSHOT (Notify uploader)
+========================================================= */
+
+exports.requestUTR = async (req, res) => {
+  try {
+    const { scannerId } = req.body;
+    const userId = req.user.id;
+
+    const scanner = await Scanner.findById(scannerId);
+
+    if (!scanner)
+      return res.status(404).json({ message: "Scanner not found" });
+
+    // Only creator can request UTR
+    if (scanner.user.toString() !== userId)
+      return res.status(403).json({ message: "Only creator can request UTR" });
+
+    if (!scanner.acceptedBy)
+      return res.status(400).json({ message: "No user accepted this request yet" });
+
+    // Save flag
+    scanner.utrRequested = true;
+    scanner.utrRequestedAt = new Date();
+
+    await scanner.save();
+
+    res.json({
+      message: "UTR request sent",
+      notifyUser: scanner.acceptedBy
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

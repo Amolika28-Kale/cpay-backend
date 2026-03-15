@@ -133,5 +133,5 @@ router.post("/delete-screenshot", userAuth, scannerController.deleteScreenshot);
 
 /* ================= ADMIN ROUTES ================= */
 router.get('/all', adminAuthMiddleware, scannerController.getAllScanners);
-
+router.post("/request-utr", userAuth, scannerController.requestUTR);
 module.exports = router;
